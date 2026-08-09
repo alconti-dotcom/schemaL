@@ -1,13 +1,10 @@
-// --- CONFIGURATION: Paste your Google AI Studio API key below ---
-const AI_API_KEY = AQ.Ab8RN6JYvQejeWQyctAnMO1pDV-jrTzZsVx8wYdD1uDkMy8NZA;
+const GEMINI_API_KEY = AQ.Ab8RN6JYvQejeWQyctAnMO1pDV-jrTzZsVx8wYdD1uDkMy8NZA; 
 
-// --- Data State ---
 const nodes = [
     { id: 'root', label: 'Main Subject', category: 'Core Concepts', def: 'Central topic of lecture' }
 ];
 const links = [];
 
-// Color Palettes for Categorical Clusters
 const categoryColors = d3.scaleOrdinal()
     .domain(["Core Concepts", "Mechanisms", "Applications"])
     .range(["rgba(59, 130, 246, 0.15)", "rgba(245, 158, 11, 0.15)", "rgba(16, 185, 129, 0.15)"]);
@@ -22,7 +19,6 @@ const clusterCenters = {
     "Applications":  { x: 300, y: 200 }
 };
 
-// --- D3 SVG Selection & Infinite Canvas Pan/Zoom ---
 const svg = d3.select('#canvas-container');
 const viewport = d3.select('#viewport');
 const hullsLayer = d3.select('#hulls-layer');
@@ -36,7 +32,6 @@ const zoom = d3.zoom()
 svg.call(zoom);
 svg.call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth / 2, window.innerHeight / 2));
 
-// --- D3 Force Physics Engine ---
 const simulation = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'correlation' ? 220 : 150))
     .force('charge', d3.forceManyBody().strength(-900))
@@ -45,7 +40,6 @@ const simulation = d3.forceSimulation(nodes)
     .force('clusterY', d3.forceY(d => clusterCenters[d.category]?.y || 0).strength(0.15))
     .on('tick', ticked);
 
-// --- Convex Hull Polygon Computation ---
 function getHullPath(groupNodes) {
     const points = [];
     const padding = 45;
@@ -77,7 +71,6 @@ function updateHulls() {
         .attr('stroke-dasharray', '5,5');
 }
 
-// --- Frame Render Function ---
 function ticked() {
     linksLayer.selectAll('line')
         .attr('x1', d => d.source.x)
@@ -91,16 +84,13 @@ function ticked() {
     updateHulls();
 }
 
-// --- Node Management & Dynamic Data Binding ---
 function updateSimulation() {
-    // 1. Render Links
     const linkSelection = linksLayer.selectAll('line')
         .data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
 
     linkSelection.join('line')
         .attr('class', d => d.type === 'correlation' ? 'link-correlation' : 'link-precursor');
 
-    // 2. Render Nodes
     const nodeSelection = nodesLayer.selectAll('g.node-group')
         .data(nodes, d => d.id);
 
@@ -133,7 +123,6 @@ function updateSimulation() {
     simulation.alpha(0.8).restart();
 }
 
-// Interactive Node Dragging
 function drag(sim) {
     return d3.drag()
         .on('start', (e, d) => {
@@ -150,10 +139,12 @@ function drag(sim) {
 }
 
 function addNode(parentLabel, childLabel, definition = '', category = 'Mechanisms', isCorrelation = false) {
+    if (nodes.some(n => n.label.toLowerCase() === childLabel.toLowerCase())) return;
+
     let parentNode = nodes.find(n => n.label.toLowerCase() === parentLabel.toLowerCase()) || nodes[0];
 
     const newNode = {
-        id: 'node_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        id: 'node_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
         label: childLabel,
         category: category,
         def: definition,
@@ -171,70 +162,71 @@ function addNode(parentLabel, childLabel, definition = '', category = 'Mechanism
     updateSimulation();
 }
 
-// --- Speech Buffer & Gemini AI Concept Parser ---
+const listenBtn = document.getElementById('listen-btn');
+const statusSpan = document.getElementById('status');
+const preview = document.getElementById('transcript-preview');
+
 let speechBuffer = "";
 
-async function processSpeechText(text) {
-    speechBuffer += " " + text;
+async function processSpeechWithAI(transcriptChunk) {
+    speechBuffer += " " + transcriptChunk;
     
-    // Process when a chunk reaches ~15 words
-    if (speechBuffer.trim().split(/\s+/).length < 15) return;
+    if (speechBuffer.trim().split(/\s+/).length < 12) return;
 
-    const chunkToProcess = speechBuffer;
-    speechBuffer = ""; // Reset buffer
+    const textToProcess = speechBuffer;
+    speechBuffer = "";
 
-    if (!AI_API_KEY || AI_API_KEY === "YOUR_GEMINI_API_KEY_HERE") {
-        statusSpan.textContent = "Status: Error - API Key missing in app.js";
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY_HERE") {
+        statusSpan.textContent = "Status: Error - Set your Gemini API key in app.js";
         return;
     }
 
     try {
-        statusSpan.textContent = "Status: AI Parsing schema...";
+        statusSpan.textContent = "Status: AI parsing concepts...";
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${AI_API_KEY}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{
-                        text: `Extract structural concepts from this lecture transcript segment into valid JSON.
-                        
-Transcript: "${chunkToProcess}"
+        const prompt = `You are a real-time academic lecture parser. Extract distinct entities and relationships from this transcript fragment.
 
-Existing concepts on canvas: ${JSON.stringify(nodes.map(n => n.label))}
+Transcript: "${textToProcess}"
 
-Rules:
-1. Extract true core academic or technical concepts. Do NOT capture conversational filler words.
-2. Set 'parentLabel' to the most logically related existing concept or 'Main Subject'.
-3. Set 'category' strictly to one of: 'Core Concepts', 'Mechanisms', 'Applications'.
-4. 'definition' must be a concise, 1-sentence summary of the concept.
+Existing Canvas Concepts: ${JSON.stringify(nodes.map(n => n.label))}
 
-Return ONLY a valid JSON array matching this exact schema:
+Instructions:
+1. Extract true core technical/academic concepts (ignore conversational filler).
+2. Connect new concepts to an existing logical parent concept from the provided list, or "Main Subject".
+3. Categorize into one of: "Core Concepts", "Mechanisms", "Applications".
+4. Provide a clear, concise 1-sentence definition.
+
+Return ONLY a valid JSON array of objects with this schema:
 [
   {
     "parentLabel": "string",
     "childLabel": "string",
     "definition": "string",
     "category": "Core Concepts" | "Mechanisms" | "Applications",
-    "isCorrelation": false
+    "isCorrelation": boolean
   }
-]`
-                    }]
-                }],
+]`;
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: { responseMimeType: "application/json" }
             })
         });
 
         const data = await response.json();
-        const extractedNodes = JSON.parse(data.candidates[0].content.parts[0].text);
+        const responseText = data.candidates[0].content.parts[0].text;
+        const extractedNodes = JSON.parse(responseText);
 
         extractedNodes.forEach(item => {
             if (item.childLabel && item.childLabel.length > 1) {
                 addNode(
-                    item.parentLabel || "Main Subject", 
-                    item.childLabel.toUpperCase(), 
-                    item.definition || "", 
-                    item.category || "Mechanisms", 
+                    item.parentLabel || "Main Subject",
+                    item.childLabel.toUpperCase(),
+                    item.definition || "",
+                    item.category || "Mechanisms",
                     item.isCorrelation || false
                 );
             }
@@ -242,15 +234,10 @@ Return ONLY a valid JSON array matching this exact schema:
 
         statusSpan.textContent = "Status: Listening...";
     } catch (err) {
-        console.error("AI Parsing Error:", err);
-        statusSpan.textContent = "Status: Listening (AI Parse Error)";
+        console.error("Gemini API Error:", err);
+        statusSpan.textContent = "Status: Listening (AI parse skipped)";
     }
 }
-
-// --- Speech Recognition Engine ---
-const listenBtn = document.getElementById('listen-btn');
-const statusSpan = document.getElementById('status');
-const preview = document.getElementById('transcript-preview');
 
 if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -276,15 +263,15 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     });
 
     recognition.onresult = (event) => {
-        let currentTranscript = '';
+        let interimTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
-                const finalPhrase = event.results[i][0].transcript.trim();
-                preview.textContent = finalPhrase;
-                processSpeechText(finalPhrase);
+                const finalChunk = event.results[i][0].transcript;
+                preview.textContent = finalChunk;
+                processSpeechWithAI(finalChunk);
             } else {
-                currentTranscript += event.results[i][0].transcript;
-                preview.textContent = currentTranscript;
+                interimTranscript += event.results[i][0].transcript;
+                preview.textContent = interimTranscript;
             }
         }
     };
@@ -292,20 +279,22 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     statusSpan.textContent = 'Status: Web Speech API unsupported in browser.';
 }
 
-// --- Manual Concept Addition & Export ---
 document.getElementById('add-demo-btn').addEventListener('click', () => {
     const term = prompt("Enter Concept Name (e.g., PHOTOSYNTHESIS):");
     if (!term) return;
     
-    const parent = prompt("Parent Concept (leave blank for Main Subject):") || "Main Subject";
-    const def = prompt("Short Definition:") || "Manually added concept";
+    const parent = prompt("Parent Concept (or leave blank for Main Subject):") || "Main Subject";
+    const def = prompt("Short Definition:") || "";
     const category = prompt("Category (Core Concepts / Mechanisms / Applications):") || "Mechanisms";
 
     addNode(parent, term.toUpperCase(), def, category, false);
 });
 
 document.getElementById('export-btn').addEventListener('click', () => {
-    const exportData = { nodes, links: links.map(l => ({ source: l.source.id, target: l.target.id, type: l.type })) };
+    const exportData = { 
+        nodes: nodes.map(n => ({ id: n.id, label: n.label, category: n.category, def: n.def })), 
+        links: links.map(l => ({ source: l.source.id || l.source, target: l.target.id || l.target, type: l.type })) 
+    };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const a = document.createElement('a');
     a.setAttribute("href", dataStr);
@@ -315,5 +304,4 @@ document.getElementById('export-btn').addEventListener('click', () => {
     a.remove();
 });
 
-// Initial Setup
 updateSimulation();
