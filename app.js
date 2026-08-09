@@ -1,9 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
-
-// Insert your valid Gemini API key starting with AIzaSy...
 const GEMINI_API_KEY = "AQ.Ab8RN6KnJSaD9DnT9gACmW4cMNZSY3lL388aifcLUnEv-2FOkA";
-
-const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 const nodes = [
     { id: 'root', label: 'Main Subject', category: 'Core Concepts', def: 'Central topic of lecture' }
@@ -204,29 +199,44 @@ Instructions:
 3. Assign category as "Core Concepts", "Mechanisms", or "Applications".
 4. Short definition under 10 words.`;
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: 'ARRAY',
-                    items: {
-                        type: 'OBJECT',
-                        properties: {
-                            parentLabel: { type: 'STRING' },
-                            childLabel: { type: 'STRING' },
-                            definition: { type: 'STRING' },
-                            category: { type: 'STRING' },
-                            isCorrelation: { type: 'BOOLEAN' }
-                        },
-                        required: ['parentLabel', 'childLabel', 'definition', 'category']
+        // Direct HTTP fetch to avoid SDK OAuth restrictions in browser
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                parentLabel: { type: "STRING" },
+                                childLabel: { type: "STRING" },
+                                definition: { type: "STRING" },
+                                category: { type: "STRING" },
+                                isCorrelation: { type: "BOOLEAN" }
+                            },
+                            required: ["parentLabel", "childLabel", "definition", "category"]
+                        }
                     }
                 }
-            }
+            })
         });
 
-        const extractedNodes = JSON.parse(response.text);
+        const data = await response.json();
+
+        if (data.error) {
+            console.error("Gemini API Error Payload:", data.error);
+            statusSpan.textContent = `Status: API Error (${data.error.message})`;
+            return;
+        }
+
+        const rawText = data.candidates[0].content.parts[0].text;
+        const extractedNodes = JSON.parse(rawText);
 
         if (Array.isArray(extractedNodes)) {
             extractedNodes.forEach(item => {
