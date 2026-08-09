@@ -52,8 +52,8 @@ function getHullPath(groupNodes) {
     });
 
     const hullPoints = d3.polygonHull(points);
-    if (!hullPoints) return '';
-    return "M" + hullPoints.join("L") + "Z";
+    if (!hullPoints || hullPoints.length === 0) return '';
+    return "M" + hullPoints.map(p => p.join(",")).join("L") + "Z";
 }
 
 function updateHulls() {
@@ -112,12 +112,15 @@ function updateSimulation() {
         .attr('y', -8)
         .text(d => d.label);
 
-    nodeEnter.append('text')
+   nodeEnter.append('text')
         .attr('class', 'node-def')
         .attr('x', -70)
         .attr('y', 12)
-        .text(d => d.def.length > 22 ? d.def.substring(0, 20) + '...' : d.def);
-
+        .text(d => {
+            const text = d.def || '';
+            return text.length > 22 ? text.substring(0, 20) + '...' : text;
+        });
+    
     simulation.nodes(nodes);
     simulation.force('link').links(links);
     simulation.alpha(0.8).restart();
@@ -246,19 +249,23 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     recognition.interimResults = true;
     let isListening = false;
 
+    recognition.onend = () => {
+        if (isListening) recognition.start();
+    };
+
     listenBtn.addEventListener('click', () => {
         if (!isListening) {
+            isListening = true;
             recognition.start();
             listenBtn.classList.add('recording');
             listenBtn.textContent = 'Stop Listening';
             statusSpan.textContent = 'Status: Listening audio stream...';
-            isListening = true;
         } else {
+            isListening = false;
             recognition.stop();
             listenBtn.classList.remove('recording');
             listenBtn.textContent = 'Start Listening';
             statusSpan.textContent = 'Status: Idle';
-            isListening = false;
         }
     });
 
