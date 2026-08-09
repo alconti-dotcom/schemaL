@@ -1,3 +1,6 @@
+// --- CONFIGURATION: Paste your Google AI Studio API key below ---
+const AI_API_KEY = AQ.Ab8RN6JYvQejeWQyctAnMO1pDV-jrTzZsVx8wYdD1uDkMy8NZA;
+
 // --- Data State ---
 const nodes = [
     { id: 'root', label: 'Main Subject', category: 'Core Concepts', def: 'Central topic of lecture' }
@@ -31,8 +34,6 @@ const zoom = d3.zoom()
     .on('zoom', (event) => viewport.attr('transform', event.transform));
 
 svg.call(zoom);
-
-// Center initial view
 svg.call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth / 2, window.innerHeight / 2));
 
 // --- D3 Force Physics Engine ---
@@ -152,7 +153,7 @@ function addNode(parentLabel, childLabel, definition = '', category = 'Mechanism
     let parentNode = nodes.find(n => n.label.toLowerCase() === parentLabel.toLowerCase()) || nodes[0];
 
     const newNode = {
-        id: 'node_' + Date.now(),
+        id: 'node_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         label: childLabel,
         category: category,
         def: definition,
@@ -168,6 +169,82 @@ function addNode(parentLabel, childLabel, definition = '', category = 'Mechanism
     });
 
     updateSimulation();
+}
+
+// --- Speech Buffer & Gemini AI Concept Parser ---
+let speechBuffer = "";
+
+async function processSpeechText(text) {
+    speechBuffer += " " + text;
+    
+    // Process when a chunk reaches ~15 words
+    if (speechBuffer.trim().split(/\s+/).length < 15) return;
+
+    const chunkToProcess = speechBuffer;
+    speechBuffer = ""; // Reset buffer
+
+    if (!AI_API_KEY || AI_API_KEY === "YOUR_GEMINI_API_KEY_HERE") {
+        statusSpan.textContent = "Status: Error - API Key missing in app.js";
+        return;
+    }
+
+    try {
+        statusSpan.textContent = "Status: AI Parsing schema...";
+
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${AI_API_KEY}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: `Extract structural concepts from this lecture transcript segment into valid JSON.
+                        
+Transcript: "${chunkToProcess}"
+
+Existing concepts on canvas: ${JSON.stringify(nodes.map(n => n.label))}
+
+Rules:
+1. Extract true core academic or technical concepts. Do NOT capture conversational filler words.
+2. Set 'parentLabel' to the most logically related existing concept or 'Main Subject'.
+3. Set 'category' strictly to one of: 'Core Concepts', 'Mechanisms', 'Applications'.
+4. 'definition' must be a concise, 1-sentence summary of the concept.
+
+Return ONLY a valid JSON array matching this exact schema:
+[
+  {
+    "parentLabel": "string",
+    "childLabel": "string",
+    "definition": "string",
+    "category": "Core Concepts" | "Mechanisms" | "Applications",
+    "isCorrelation": false
+  }
+]`
+                    }]
+                }],
+                generationConfig: { responseMimeType: "application/json" }
+            })
+        });
+
+        const data = await response.json();
+        const extractedNodes = JSON.parse(data.candidates[0].content.parts[0].text);
+
+        extractedNodes.forEach(item => {
+            if (item.childLabel && item.childLabel.length > 1) {
+                addNode(
+                    item.parentLabel || "Main Subject", 
+                    item.childLabel.toUpperCase(), 
+                    item.definition || "", 
+                    item.category || "Mechanisms", 
+                    item.isCorrelation || false
+                );
+            }
+        });
+
+        statusSpan.textContent = "Status: Listening...";
+    } catch (err) {
+        console.error("AI Parsing Error:", err);
+        statusSpan.textContent = "Status: Listening (AI Parse Error)";
+    }
 }
 
 // --- Speech Recognition Engine ---
@@ -198,76 +275,33 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         }
     });
 
-    let processedPhrases = new Set();
-
-recognition.onresult = (event) => {
-    let currentTranscript = '';
-    
-    for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-            const finalPhrase = event.results[i][0].transcript.trim();
-            preview.textContent = finalPhrase;
-            processSpeechText(finalPhrase);
-        } else {
-            currentTranscript += event.results[i][0].transcript;
-            preview.textContent = currentTranscript;
+    recognition.onresult = (event) => {
+        let currentTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                const finalPhrase = event.results[i][0].transcript.trim();
+                preview.textContent = finalPhrase;
+                processSpeechText(finalPhrase);
+            } else {
+                currentTranscript += event.results[i][0].transcript;
+                preview.textContent = currentTranscript;
+            }
         }
-    }
-};
-
-function processSpeechText(text) {
-    const lower = text.toLowerCase();
-    
-    // Prevent duplicate triggers on the same spoken sentence
-    if (processedPhrases.has(lower)) return;
-    processedPhrases.add(lower);
-
-    // Dynamic Trigger Patterns: "X is Y", "X means Y", "X leads to Y", or "X defined as Y"
-    let parent = 'Main Subject';
-    let child = '';
-    let def = text;
-    let category = 'Mechanisms';
-    let isCorrelation = false;
-
-    if (lower.includes(' leads to ') || lower.includes(' causes ')) {
-        const parts = lower.split(/ leads to | causes /);
-        parent = parts[0].trim().toUpperCase();
-        child = parts[1].trim().toUpperCase();
-        isCorrelation = true;
-    } else if (lower.includes(' is ') || lower.includes(' means ') || lower.includes(' defined as ')) {
-        const parts = lower.split(/ is | means | defined as /);
-        child = parts[0].trim().toUpperCase();
-        def = parts[1].trim();
-        category = 'Core Concepts';
-    } else {
-        // Fallback: If any long sentence is finalized, branch off the last node created
-        const lastNode = nodes[nodes.length - 1] ? nodes[nodes.length - 1].label : 'Main Subject';
-        const words = text.split(' ');
-        child = words.slice(0, 3).join(' ').toUpperCase(); // Take first 3 words as label
-        parent = lastNode;
-        category = 'Applications';
-    }
-
-    if (child && child.length > 1) {
-        // Ensure parent exists, fallback to root if not found
-        const parentExists = nodes.some(n => n.label.toLowerCase() === parent.toLowerCase());
-        const validParent = parentExists ? parent : 'Main Subject';
-
-        addNode(validParent, child, def, category, isCorrelation);
-    }
-}
+    };
 } else {
     statusSpan.textContent = 'Status: Web Speech API unsupported in browser.';
 }
 
 // --- Manual Concept Addition & Export ---
 document.getElementById('add-demo-btn').addEventListener('click', () => {
-    const categories = ['Core Concepts', 'Mechanisms', 'Applications'];
-    const selectedCategory = categories[Math.floor(Math.random() * categories.length)];
-    const parent = nodes[Math.floor(Math.random() * nodes.length)].label;
-    const count = nodes.length;
+    const term = prompt("Enter Concept Name (e.g., PHOTOSYNTHESIS):");
+    if (!term) return;
+    
+    const parent = prompt("Parent Concept (leave blank for Main Subject):") || "Main Subject";
+    const def = prompt("Short Definition:") || "Manually added concept";
+    const category = prompt("Category (Core Concepts / Mechanisms / Applications):") || "Mechanisms";
 
-    addNode(parent, `Concept ${count}`, 'Automated multidirectional node', selectedCategory, Math.random() > 0.6);
+    addNode(parent, term.toUpperCase(), def, category, false);
 });
 
 document.getElementById('export-btn').addEventListener('click', () => {
