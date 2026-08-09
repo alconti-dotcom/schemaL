@@ -39,7 +39,13 @@ button {
 
 button:hover { background: #1d4ed8; }
 button:active { transform: scale(0.98); }
-button.recording { background: #dc2626; }
+button.recording { background: #dc2626; animation: pulse 1.5s infinite; }
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
 
 #status {
     font-size: 12px;
@@ -89,16 +95,6 @@ button.recording { background: #dc2626; }
 .node-def {
     fill: #94a3b8;
     font-size: 10px;
-    pointer-events: none;
-}
-
-.cluster-label {
-    fill: #e2e8f0;
-    font-weight: 800;
-    font-size: 14px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    opacity: 0.6;
     pointer-events: none;
 }
 
