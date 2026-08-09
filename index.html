@@ -3,28 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live AI Visual Schema Parser</title>
-    <link rel="stylesheet" href="style.css">
-    <!-- Load D3.js v7 for Physics Engine & Convex Hulls -->
-    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <title>Real-Time Speech to Concept Graph</title>
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- D3.js Library -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <!-- ES Module Import Map for official Google GenAI SDK -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.run/@google/genai"
+        }
+      }
+    </script>
 </head>
 <body>
-
     <div id="controls">
         <button id="listen-btn">Start Listening</button>
-        <button id="add-demo-btn">+ Manual Concept</button>
-        <button id="export-btn">Export Schema (.json)</button>
+        <button id="add-demo-btn">Add Manual Concept</button>
+        <button id="export-btn">Export Schema</button>
         <span id="status">Status: Idle</span>
     </div>
 
-    <div id="transcript-preview">Speech transcript stream will display here...</div>
+    <div id="transcript-preview"></div>
 
     <svg id="canvas-container">
-        <defs>
-            <marker id="arrow" viewBox="0 -5 10 10" refX="90" refY="0" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M0,-5L10,0L0,5" fill="#60a5fa"/>
-            </marker>
-        </defs>
         <g id="viewport">
             <g id="hulls-layer"></g>
             <g id="links-layer"></g>
@@ -32,6 +36,7 @@
         </g>
     </svg>
 
-    <script src="app.js"></script>
+    <!-- Loaded as module to enable SDK imports -->
+    <script type="module" src="app.js"></script>
 </body>
 </html>
