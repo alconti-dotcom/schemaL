@@ -1,4 +1,4 @@
-const GEMINI_API_KEY = "AQ.Ab8RN6JX_KQ_qFAYpWrL0Iamuqz48iMC5nfKdFKkxZdaybyndQ";
+const GEMINI_API_KEY = "AQ.Ab8RN6LEGl295U2VgPtTjWuMslKMIpuk1HjJhYTRhGArn_-kdg";
 
 // Root node initialized with explicit starting coordinates (0, 0)
 const nodes = [
