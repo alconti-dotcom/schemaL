@@ -1,4 +1,4 @@
-const GEMINI_API_KEY = AQ.Ab8RN6JYvQejeWQyctAnMO1pDV-jrTzZsVx8wYdD1uDkMy8NZA; 
+const GEMINI_API_KEY = "AQ.Ab8RN6JYvQejeWQyctAnMO1pDV-jrTzZsVx8wYdD1uDkMy8NZA"; 
 
 const nodes = [
     { id: 'root', label: 'Main Subject', category: 'Core Concepts', def: 'Central topic of lecture' }
