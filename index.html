@@ -8,15 +8,6 @@
     
     <!-- D3.js Library -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    
-    <!-- ES Module Import Map for official Google GenAI SDK -->
-    <script type="importmap">
-      {
-        "imports": {
-          "@google/genai": "https://esm.run/@google/genai"
-        }
-      }
-    </script>
 </head>
 <body>
     <div id="controls">
@@ -36,7 +27,6 @@
         </g>
     </svg>
 
-    <!-- Loaded as module to enable SDK imports -->
-    <script type="module" src="app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
