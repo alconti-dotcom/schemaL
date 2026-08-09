@@ -1,6 +1,9 @@
-const GEMINI_API_KEY = "AQ.Ab8RN6LEGl295U2VgPtTjWuMslKMIpuk1HjJhYTRhGArn_-kdg";
+const API_CONFIG = {
+    useProxy: false,
+    proxyEndpoint: "/api/extract",
+    geminiKey: "AQ.Ab8RN6LEGl295U2VgPtTjWuMslKMIpuk1HjJhYTRhGArn_-kdg"
+};
 
-// Root node initialized with explicit starting coordinates (0, 0)
 const nodes = [
     { 
         id: 'root', 
@@ -21,10 +24,10 @@ const categoryBorderColors = d3.scaleOrdinal()
     .domain(["Core Concepts", "Mechanisms", "Applications"])
     .range(["#3b82f6", "#f59e0b", "#10b981"]);
 
-const clusterCenters = {
-    "Core Concepts": { x: 0, y: 0 },
-    "Mechanisms":    { x: 300, y: -200 },
-    "Applications":  { x: 300, y: 200 }
+const baseClusterCenters = {
+    "Core Concepts": { x: 0, y: -150 },
+    "Mechanisms":    { x: -350, y: 200 },
+    "Applications":  { x: 350, y: 200 }
 };
 
 const svg = d3.select('#canvas-container');
@@ -41,16 +44,24 @@ svg.call(zoom);
 svg.call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth / 2, window.innerHeight / 2));
 
 const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'correlation' ? 220 : 150))
-    .force('charge', d3.forceManyBody().strength(-900))
-    .force('collide', d3.forceCollide().radius(110))
-    .force('clusterX', d3.forceX(d => clusterCenters[d.category]?.x || 0).strength(0.15))
-    .force('clusterY', d3.forceY(d => clusterCenters[d.category]?.y || 0).strength(0.15))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'correlation' ? 260 : 180))
+    .force('charge', d3.forceManyBody().strength(-1200))
+    .force('collide', d3.forceCollide().radius(130).iterations(3))
+    .force('clusterX', d3.forceX(d => baseClusterCenters[d.category]?.x || 0).strength(0.2))
+    .force('clusterY', d3.forceY(d => baseClusterCenters[d.category]?.y || 0).strength(0.2))
     .on('tick', ticked);
 
 function getHullPath(groupNodes) {
+    if (!groupNodes || groupNodes.length === 0) return '';
+    
+    if (groupNodes.length === 1) {
+        const d = groupNodes[0];
+        const p = 60;
+        return `M ${d.x - p} ${d.y - p} L ${d.x + p} ${d.y - p} L ${d.x + p} ${d.y + p} L ${d.x - p} ${d.y + p} Z`;
+    }
+
     const points = [];
-    const padding = 45;
+    const padding = 55;
 
     groupNodes.forEach(d => {
         points.push([d.x - 80 - padding, d.y - 30 - padding]);
@@ -93,7 +104,6 @@ function ticked() {
 }
 
 function updateSimulation() {
-    // 1. Link update with full .join() enter lifecycle
     const linkSelection = linksLayer.selectAll('line')
         .data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
 
@@ -102,7 +112,6 @@ function updateSimulation() {
             .attr('class', d => d.type === 'correlation' ? 'link-correlation' : 'link-precursor')
     );
 
-    // 2. Node update using full .join() lifecycle to ensure initial root node renders
     const nodeSelection = nodesLayer.selectAll('g.node-group')
         .data(nodes, d => d.id);
 
@@ -168,8 +177,8 @@ function addNode(parentLabel, childLabel, definition = '', category = 'Mechanism
         label: childLabel,
         category: category,
         def: definition,
-        x: parentNode.x + (Math.random() - 0.5) * 40,
-        y: parentNode.y + (Math.random() - 0.5) * 40
+        x: parentNode.x + (Math.random() - 0.5) * 50,
+        y: parentNode.y + (Math.random() - 0.5) * 50
     };
 
     nodes.push(newNode);
@@ -187,19 +196,29 @@ const statusSpan = document.getElementById('status');
 const preview = document.getElementById('transcript-preview');
 
 let speechBuffer = "";
+let lastProcessTime = Date.now();
+
+function shouldProcessBuffer(buffer) {
+    const trimmed = buffer.trim();
+    const wordCount = trimmed.split(/\s+/).length;
+    const hasSentenceEnd = /[.?!]$/.test(trimmed);
+    const timeElapsed = Date.now() - lastProcessTime;
+
+    if (wordCount >= 12 && hasSentenceEnd) return true;
+    if (wordCount >= 20) return true;
+    if (wordCount >= 8 && timeElapsed > 6000) return true;
+
+    return false;
+}
 
 async function processSpeechWithAI(transcriptChunk) {
     speechBuffer += " " + transcriptChunk;
     
-    if (speechBuffer.trim().split(/\s+/).length < 6) return;
+    if (!shouldProcessBuffer(speechBuffer)) return;
 
-    const textToProcess = speechBuffer;
+    const textToProcess = speechBuffer.trim();
     speechBuffer = "";
-
-    if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR_VALID")) {
-        statusSpan.textContent = "Status: Error - Set a valid AIzaSy... key in app.js";
-        return;
-    }
+    lastProcessTime = Date.now();
 
     try {
         statusSpan.textContent = "Status: AI parsing concepts...";
@@ -216,32 +235,48 @@ Instructions:
 3. Assign category as "Core Concepts", "Mechanisms", or "Applications".
 4. Short definition under 10 words.`;
 
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-        
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: "ARRAY",
-                        items: {
-                            type: "OBJECT",
-                            properties: {
-                                parentLabel: { type: "STRING" },
-                                childLabel: { type: "STRING" },
-                                definition: { type: "STRING" },
-                                category: { type: "STRING" },
-                                isCorrelation: { type: "BOOLEAN" }
-                            },
-                            required: ["parentLabel", "childLabel", "definition", "category"]
+        let response;
+
+        if (API_CONFIG.useProxy) {
+            response = await fetch(API_CONFIG.proxyEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, nodes: nodes.map(n => n.label) })
+            });
+        } else {
+            const cleanKey = API_CONFIG.geminiKey ? API_CONFIG.geminiKey.trim() : "";
+            if (!cleanKey || cleanKey.includes("YOUR_VALID")) {
+                statusSpan.textContent = "Status: Error - Set a valid AIzaSy... key in app.js";
+                return;
+            }
+
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`;
+            
+            response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    parentLabel: { type: "STRING" },
+                                    childLabel: { type: "STRING" },
+                                    definition: { type: "STRING" },
+                                    category: { type: "STRING" },
+                                    isCorrelation: { type: "BOOLEAN" }
+                                },
+                                required: ["parentLabel", "childLabel", "definition", "category"]
+                            }
                         }
                     }
-                }
-            })
-        });
+                })
+            });
+        }
 
         const data = await response.json();
 
@@ -251,7 +286,7 @@ Instructions:
             return;
         }
 
-        const rawText = data.candidates[0].content.parts[0].text;
+        const rawText = API_CONFIG.useProxy ? data.text : data.candidates[0].content.parts[0].text;
         const extractedNodes = JSON.parse(rawText);
 
         if (Array.isArray(extractedNodes)) {
@@ -344,5 +379,4 @@ document.getElementById('export-btn').addEventListener('click', () => {
     a.remove();
 });
 
-// Run once at load to paint the initial 'MAIN SUBJECT' root node
 updateSimulation();
