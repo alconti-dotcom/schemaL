@@ -198,21 +198,64 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         }
     });
 
-    recognition.onresult = (event) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            transcript += event.results[i][0].transcript;
+    let processedPhrases = new Set();
+
+recognition.onresult = (event) => {
+    let currentTranscript = '';
+    
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+            const finalPhrase = event.results[i][0].transcript.trim();
+            preview.textContent = finalPhrase;
+            processSpeechText(finalPhrase);
+        } else {
+            currentTranscript += event.results[i][0].transcript;
+            preview.textContent = currentTranscript;
         }
-        preview.textContent = transcript;
-        
-        // Simple client keyword triggers ("define X as Y")
-        const lower = transcript.toLowerCase();
-        if (lower.includes('defined as')) {
-            const parts = lower.split('defined as');
-            const term = parts[0].trim().split(' ').pop();
-            addNode('Main Subject', term.toUpperCase(), parts[1].trim(), 'Mechanisms');
-        }
-    };
+    }
+};
+
+function processSpeechText(text) {
+    const lower = text.toLowerCase();
+    
+    // Prevent duplicate triggers on the same spoken sentence
+    if (processedPhrases.has(lower)) return;
+    processedPhrases.add(lower);
+
+    // Dynamic Trigger Patterns: "X is Y", "X means Y", "X leads to Y", or "X defined as Y"
+    let parent = 'Main Subject';
+    let child = '';
+    let def = text;
+    let category = 'Mechanisms';
+    let isCorrelation = false;
+
+    if (lower.includes(' leads to ') || lower.includes(' causes ')) {
+        const parts = lower.split(/ leads to | causes /);
+        parent = parts[0].trim().toUpperCase();
+        child = parts[1].trim().toUpperCase();
+        isCorrelation = true;
+    } else if (lower.includes(' is ') || lower.includes(' means ') || lower.includes(' defined as ')) {
+        const parts = lower.split(/ is | means | defined as /);
+        child = parts[0].trim().toUpperCase();
+        def = parts[1].trim();
+        category = 'Core Concepts';
+    } else {
+        // Fallback: If any long sentence is finalized, branch off the last node created
+        const lastNode = nodes[nodes.length - 1] ? nodes[nodes.length - 1].label : 'Main Subject';
+        const words = text.split(' ');
+        child = words.slice(0, 3).join(' ').toUpperCase(); // Take first 3 words as label
+        parent = lastNode;
+        category = 'Applications';
+    }
+
+    if (child && child.length > 1) {
+        // Ensure parent exists, fallback to root if not found
+        const parentExists = nodes.some(n => n.label.toLowerCase() === parent.toLowerCase());
+        const validParent = parentExists ? parent : 'Main Subject';
+
+        addNode(validParent, child, def, category, isCorrelation);
+    }
+}
 } else {
     statusSpan.textContent = 'Status: Web Speech API unsupported in browser.';
 }
