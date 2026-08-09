@@ -1,7 +1,15 @@
 const GEMINI_API_KEY = "AQ.Ab8RN6JX_KQ_qFAYpWrL0Iamuqz48iMC5nfKdFKkxZdaybyndQ";
 
+// Root node initialized with explicit starting coordinates (0, 0)
 const nodes = [
-    { id: 'root', label: 'Main Subject', category: 'Core Concepts', def: 'Central topic of lecture' }
+    { 
+        id: 'root', 
+        label: 'MAIN SUBJECT', 
+        category: 'Core Concepts', 
+        def: 'Central topic of lecture',
+        x: 0,
+        y: 0
+    }
 ];
 const links = [];
 
@@ -85,41 +93,50 @@ function ticked() {
 }
 
 function updateSimulation() {
+    // 1. Link update with full .join() enter lifecycle
     const linkSelection = linksLayer.selectAll('line')
         .data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
 
-    linkSelection.join('line')
-        .attr('class', d => d.type === 'correlation' ? 'link-correlation' : 'link-precursor');
+    linkSelection.join(
+        enter => enter.append('line')
+            .attr('class', d => d.type === 'correlation' ? 'link-correlation' : 'link-precursor')
+    );
 
+    // 2. Node update using full .join() lifecycle to ensure initial root node renders
     const nodeSelection = nodesLayer.selectAll('g.node-group')
         .data(nodes, d => d.id);
 
-    const nodeEnter = nodeSelection.enter()
-        .append('g')
-        .attr('class', 'node-group')
-        .call(drag(simulation));
+    nodeSelection.join(
+        enter => {
+            const nodeEnter = enter.append('g')
+                .attr('class', 'node-group')
+                .call(drag(simulation));
 
-    nodeEnter.append('rect')
-        .attr('class', 'node-rect')
-        .attr('width', 160)
-        .attr('height', 60)
-        .attr('x', -80)
-        .attr('y', -30);
+            nodeEnter.append('rect')
+                .attr('class', 'node-rect')
+                .attr('width', 160)
+                .attr('height', 60)
+                .attr('x', -80)
+                .attr('y', -30);
 
-    nodeEnter.append('text')
-        .attr('class', 'node-title')
-        .attr('x', -70)
-        .attr('y', -8)
-        .text(d => d.label);
+            nodeEnter.append('text')
+                .attr('class', 'node-title')
+                .attr('x', -70)
+                .attr('y', -8)
+                .text(d => d.label);
 
-    nodeEnter.append('text')
-        .attr('class', 'node-def')
-        .attr('x', -70)
-        .attr('y', 12)
-        .text(d => {
-            const text = d.def || '';
-            return text.length > 22 ? text.substring(0, 20) + '...' : text;
-        });
+            nodeEnter.append('text')
+                .attr('class', 'node-def')
+                .attr('x', -70)
+                .attr('y', 12)
+                .text(d => {
+                    const text = d.def || '';
+                    return text.length > 22 ? text.substring(0, 20) + '...' : text;
+                });
+
+            return nodeEnter;
+        }
+    );
 
     simulation.nodes(nodes);
     simulation.force('link').links(links);
@@ -195,11 +212,10 @@ Existing Canvas Concepts: ${JSON.stringify(nodes.map(n => n.label))}
 
 Instructions:
 1. Extract distinct technical or academic concepts.
-2. Link new concepts to a parent concept from Existing Canvas Concepts or "Main Subject".
+2. Link new concepts to a parent concept from Existing Canvas Concepts or "MAIN SUBJECT".
 3. Assign category as "Core Concepts", "Mechanisms", or "Applications".
 4. Short definition under 10 words.`;
 
-        // Direct HTTP fetch to avoid SDK OAuth restrictions in browser
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         
         const response = await fetch(endpoint, {
@@ -242,7 +258,7 @@ Instructions:
             extractedNodes.forEach(item => {
                 if (item.childLabel && item.childLabel.length > 1) {
                     addNode(
-                        item.parentLabel || "Main Subject",
+                        item.parentLabel || "MAIN SUBJECT",
                         item.childLabel.toUpperCase(),
                         item.definition || "",
                         item.category || "Mechanisms",
@@ -307,7 +323,7 @@ document.getElementById('add-demo-btn').addEventListener('click', () => {
     const term = prompt("Enter Concept Name (e.g., PHOTOSYNTHESIS):");
     if (!term) return;
     
-    const parent = prompt("Parent Concept (or leave blank for Main Subject):") || "Main Subject";
+    const parent = prompt("Parent Concept (or leave blank for MAIN SUBJECT):") || "MAIN SUBJECT";
     const def = prompt("Short Definition:") || "";
     const category = prompt("Category (Core Concepts / Mechanisms / Applications):") || "Mechanisms";
 
@@ -328,4 +344,5 @@ document.getElementById('export-btn').addEventListener('click', () => {
     a.remove();
 });
 
+// Run once at load to paint the initial 'MAIN SUBJECT' root node
 updateSimulation();
