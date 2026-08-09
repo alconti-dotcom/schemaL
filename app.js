@@ -112,7 +112,7 @@ function updateSimulation() {
         .attr('y', -8)
         .text(d => d.label);
 
-   nodeEnter.append('text')
+    nodeEnter.append('text')
         .attr('class', 'node-def')
         .attr('x', -70)
         .attr('y', 12)
@@ -120,7 +120,7 @@ function updateSimulation() {
             const text = d.def || '';
             return text.length > 22 ? text.substring(0, 20) + '...' : text;
         });
-    
+
     simulation.nodes(nodes);
     simulation.force('link').links(links);
     simulation.alpha(0.8).restart();
@@ -187,7 +187,7 @@ async function processSpeechWithAI(transcriptChunk) {
     try {
         statusSpan.textContent = "Status: AI parsing concepts...";
 
-        const prompt = `You are a real-time academic lecture parser. Extract distinct entities and relationships from this transcript fragment.
+        const prompt = `Extract distinct entities and relationships from this transcript fragment.
 
 Transcript: "${textToProcess}"
 
@@ -199,41 +199,55 @@ Instructions:
 3. Categorize into one of: "Core Concepts", "Mechanisms", "Applications".
 4. Provide a clear, concise 1-sentence definition.
 
-Return ONLY a valid JSON array of objects with this schema:
+Return a JSON array of objects following this structure:
 [
   {
     "parentLabel": "string",
     "childLabel": "string",
     "definition": "string",
-    "category": "Core Concepts" | "Mechanisms" | "Applications",
-    "isCorrelation": boolean
+    "category": "Core Concepts | Mechanisms | Applications",
+    "isCorrelation": false
   }
 ]`;
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { responseMimeType: "application/json" }
+                generationConfig: { 
+                    responseMimeType: "application/json"
+                }
             })
         });
 
         const data = await response.json();
-        const responseText = data.candidates[0].content.parts[0].text;
+        
+        if (!data.candidates || !data.candidates[0].content) {
+            throw new Error("Invalid response format from Gemini API");
+        }
+
+        let responseText = data.candidates[0].content.parts[0].text.trim();
+        
+        if (responseText.startsWith("```")) {
+            responseText = responseText.replace(/^```json\s*/, "").replace(/^```\s*/, "").replace(/\s*```$/, "");
+        }
+
         const extractedNodes = JSON.parse(responseText);
 
-        extractedNodes.forEach(item => {
-            if (item.childLabel && item.childLabel.length > 1) {
-                addNode(
-                    item.parentLabel || "Main Subject",
-                    item.childLabel.toUpperCase(),
-                    item.definition || "",
-                    item.category || "Mechanisms",
-                    item.isCorrelation || false
-                );
-            }
-        });
+        if (Array.isArray(extractedNodes)) {
+            extractedNodes.forEach(item => {
+                if (item.childLabel && item.childLabel.length > 1) {
+                    addNode(
+                        item.parentLabel || "Main Subject",
+                        item.childLabel.toUpperCase(),
+                        item.definition || "",
+                        item.category || "Mechanisms",
+                        item.isCorrelation || false
+                    );
+                }
+            });
+        }
 
         statusSpan.textContent = "Status: Listening...";
     } catch (err) {
