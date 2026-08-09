@@ -1,4 +1,9 @@
-const GEMINI_API_KEY = "AQ.Ab8RN6KnJSaD9DnT9gACmW4cMNZSY3lL388aifcLUnEv-2FOkA"; 
+import { GoogleGenAI } from "@google/genai";
+
+// Insert your valid Gemini API key starting with AIzaSy...
+const GEMINI_API_KEY = "AQ.Ab8RN6KnJSaD9DnT9gACmW4cMNZSY3lL388aifcLUnEv-2FOkA";
+
+const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 const nodes = [
     { id: 'root', label: 'Main Subject', category: 'Core Concepts', def: 'Central topic of lecture' }
@@ -197,40 +202,31 @@ Instructions:
 1. Extract distinct technical or academic concepts.
 2. Link new concepts to a parent concept from Existing Canvas Concepts or "Main Subject".
 3. Assign category as "Core Concepts", "Mechanisms", or "Applications".
-4. Short definition under 10 words.
+4. Short definition under 10 words.`;
 
-Return ONLY a JSON array matching this exact format:
-[
-  {
-    "parentLabel": "Main Subject",
-    "childLabel": "CONCEPT NAME",
-    "definition": "Short definition",
-    "category": "Core Concepts",
-    "isCorrelation": false
-  }
-]`;
-
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { 
-                    responseMimeType: "application/json"
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: 'ARRAY',
+                    items: {
+                        type: 'OBJECT',
+                        properties: {
+                            parentLabel: { type: 'STRING' },
+                            childLabel: { type: 'STRING' },
+                            definition: { type: 'STRING' },
+                            category: { type: 'STRING' },
+                            isCorrelation: { type: 'BOOLEAN' }
+                        },
+                        required: ['parentLabel', 'childLabel', 'definition', 'category']
+                    }
                 }
-            })
+            }
         });
 
-        const data = await response.json();
-        
-        if (data.error) {
-            console.error("Gemini API Error Payload:", data.error);
-            statusSpan.textContent = `Status: API Error (${data.error.message})`;
-            return;
-        }
-
-        let responseText = data.candidates[0].content.parts[0].text.trim();
-        const extractedNodes = JSON.parse(responseText);
+        const extractedNodes = JSON.parse(response.text);
 
         if (Array.isArray(extractedNodes)) {
             extractedNodes.forEach(item => {
@@ -249,7 +245,7 @@ Return ONLY a JSON array matching this exact format:
         statusSpan.textContent = "Status: Listening...";
     } catch (err) {
         console.error("Processing Exception:", err);
-        statusSpan.textContent = "Status: Listening (AI parse failed - see console)";
+        statusSpan.textContent = `Status: AI Error - ${err.message || 'Check Browser Console'}`;
     }
 }
 
