@@ -1,4 +1,4 @@
-const GEMINI_API_KEY = "AQ.Ab8RN6JYvQejeWQyctAnMO1pDV-jrTzZsVx8wYdD1uDkMy8NZA"; 
+const GEMINI_API_KEY = "AQ.Ab8RN6KnJSaD9DnT9gACmW4cMNZSY3lL388aifcLUnEv-2FOkA"; 
 
 const nodes = [
     { id: 'root', label: 'Main Subject', category: 'Core Concepts', def: 'Central topic of lecture' }
@@ -174,38 +174,38 @@ let speechBuffer = "";
 async function processSpeechWithAI(transcriptChunk) {
     speechBuffer += " " + transcriptChunk;
     
-    if (speechBuffer.trim().split(/\s+/).length < 12) return;
+    if (speechBuffer.trim().split(/\s+/).length < 6) return;
 
     const textToProcess = speechBuffer;
     speechBuffer = "";
 
-    if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY_HERE") {
-        statusSpan.textContent = "Status: Error - Set your Gemini API key in app.js";
+    if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR_VALID")) {
+        statusSpan.textContent = "Status: Error - Set a valid AIzaSy... key in app.js";
         return;
     }
 
     try {
         statusSpan.textContent = "Status: AI parsing concepts...";
 
-        const prompt = `Extract distinct entities and relationships from this transcript fragment.
+        const prompt = `Extract distinct concepts from this transcript segment.
 
 Transcript: "${textToProcess}"
 
 Existing Canvas Concepts: ${JSON.stringify(nodes.map(n => n.label))}
 
 Instructions:
-1. Extract true core technical/academic concepts (ignore conversational filler).
-2. Connect new concepts to an existing logical parent concept from the provided list, or "Main Subject".
-3. Categorize into one of: "Core Concepts", "Mechanisms", "Applications".
-4. Provide a clear, concise 1-sentence definition.
+1. Extract distinct technical or academic concepts.
+2. Link new concepts to a parent concept from Existing Canvas Concepts or "Main Subject".
+3. Assign category as "Core Concepts", "Mechanisms", or "Applications".
+4. Short definition under 10 words.
 
-Return a JSON array of objects following this structure:
+Return ONLY a JSON array matching this exact format:
 [
   {
-    "parentLabel": "string",
-    "childLabel": "string",
-    "definition": "string",
-    "category": "Core Concepts | Mechanisms | Applications",
+    "parentLabel": "Main Subject",
+    "childLabel": "CONCEPT NAME",
+    "definition": "Short definition",
+    "category": "Core Concepts",
     "isCorrelation": false
   }
 ]`;
@@ -223,16 +223,13 @@ Return a JSON array of objects following this structure:
 
         const data = await response.json();
         
-        if (!data.candidates || !data.candidates[0].content) {
-            throw new Error("Invalid response format from Gemini API");
+        if (data.error) {
+            console.error("Gemini API Error Payload:", data.error);
+            statusSpan.textContent = `Status: API Error (${data.error.message})`;
+            return;
         }
 
         let responseText = data.candidates[0].content.parts[0].text.trim();
-        
-        if (responseText.startsWith("```")) {
-            responseText = responseText.replace(/^```json\s*/, "").replace(/^```\s*/, "").replace(/\s*```$/, "");
-        }
-
         const extractedNodes = JSON.parse(responseText);
 
         if (Array.isArray(extractedNodes)) {
@@ -251,8 +248,8 @@ Return a JSON array of objects following this structure:
 
         statusSpan.textContent = "Status: Listening...";
     } catch (err) {
-        console.error("Gemini API Error:", err);
-        statusSpan.textContent = "Status: Listening (AI parse skipped)";
+        console.error("Processing Exception:", err);
+        statusSpan.textContent = "Status: Listening (AI parse failed - see console)";
     }
 }
 
