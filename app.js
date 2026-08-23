@@ -1,11 +1,3 @@
-import { GoogleGenAI, Type } from '@google/genai';
-
-// Paste your AI Studio AQ. key here
-const GEMINI_API_KEY = "AQ.Ab8RN6LaBx8ut6Oj0A6KEPmmlPuc6k8C8J7eJjSIlwdtOKAKcQ";
-
-// Initialize SDK Client directly
-const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
 // Graph Data Stores
 let nodes = [];
 let links = [];
@@ -170,7 +162,7 @@ function drag(sim) {
         });
 }
 
-// Drawer Actions
+// Drawer UI
 const drawer = document.getElementById('input-drawer');
 const toggleBtn = document.getElementById('toggle-input-btn');
 const closeBtn = document.getElementById('close-drawer-btn');
@@ -218,52 +210,65 @@ Formatting & Branching Rules:
 1. Identify if information is a "sub-branch" (a category umbrella, e.g., "Types of Capsules") or a "detail" (definition, property, formula, e.g., "Enclosed in gelatin").
 2. For "sub-branch" nodes, set "distanceMultiplier": 2.0 (creates 2x visual distance).
 3. For "detail" nodes, set "distanceMultiplier": 1.0.
-4. Extract relationships/correlations between concepts (e.g., comparisons like "<", ">", "precursor to", "inhibits"). Add these as cross-links in the "correlations" array.`;
+4. Extract relationships/correlations between concepts (e.g., comparisons like "<", ">", "precursor to", "inhibits"). Add these as cross-links in the "correlations" array.
+
+Return ONLY valid JSON matching the schema.`;
 
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: 'application/json',
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        nodes: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    id: { type: Type.STRING },
-                                    parentId: { type: Type.STRING },
-                                    label: { type: Type.STRING },
-                                    definition: { type: Type.STRING },
-                                    nodeType: { type: Type.STRING, enum: ["sub-branch", "detail"] },
-                                    category: { type: Type.STRING },
-                                    distanceMultiplier: { type: Type.NUMBER }
-                                },
-                                required: ["id", "parentId", "label", "definition", "nodeType", "distanceMultiplier"]
+        // Calls the internal Vercel serverless proxy endpoint
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            nodes: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        id: { type: "STRING" },
+                                        parentId: { type: "STRING" },
+                                        label: { type: "STRING" },
+                                        definition: { type: "STRING" },
+                                        nodeType: { type: "STRING", enum: ["sub-branch", "detail"] },
+                                        category: { type: "STRING" },
+                                        distanceMultiplier: { type: "NUMBER" }
+                                    },
+                                    required: ["id", "parentId", "label", "definition", "nodeType", "distanceMultiplier"]
+                                }
+                            },
+                            correlations: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        sourceId: { type: "STRING" },
+                                        targetId: { type: "STRING" },
+                                        relationship: { type: "STRING" }
+                                    },
+                                    required: ["sourceId", "targetId", "relationship"]
+                                }
                             }
                         },
-                        correlations: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    sourceId: { type: Type.STRING },
-                                    targetId: { type: Type.STRING },
-                                    relationship: { type: Type.STRING }
-                                },
-                                required: ["sourceId", "targetId", "relationship"]
-                            }
-                        }
-                    },
-                    required: ["nodes"]
+                        required: ["nodes"]
+                    }
                 }
-            }
+            })
         });
 
-        const payload = JSON.parse(response.text);
+        const data = await response.json();
+        
+        if (data.error) {
+            statusSpan.textContent = `Error: ${data.error.message || data.error}`;
+            return;
+        }
+
+        const payload = JSON.parse(data.candidates[0].content.parts[0].text);
         const validNodeIds = new Set(['root']);
 
         payload.nodes.forEach(item => {
