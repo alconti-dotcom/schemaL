@@ -1,34 +1,17 @@
-const API_CONFIG = {
-    useProxy: false,
-    proxyEndpoint: "/api/extract",
-    geminiKey: "AQ.Ab8RN6LEGl295U2VgPtTjWuMslKMIpuk1HjJhYTRhGArn_-kdg"
-};
+// REPLACE WITH YOUR ACTUAL API KEY (AIzaSy...)
+const GEMINI_API_KEY = "YOUR_VALID_GEMINI_API_KEY_HERE";
 
-const nodes = [
-    { 
-        id: 'root', 
-        label: 'MAIN SUBJECT', 
-        category: 'Core Concepts', 
-        def: 'Central topic of lecture',
-        x: 0,
-        y: 0
-    }
-];
-const links = [];
+// Graph Data Stores
+let nodes = [];
+let links = [];
 
 const categoryColors = d3.scaleOrdinal()
-    .domain(["Core Concepts", "Mechanisms", "Applications"])
-    .range(["rgba(59, 130, 246, 0.15)", "rgba(245, 158, 11, 0.15)", "rgba(16, 185, 129, 0.15)"]);
+    .domain(["Core Concepts", "Mechanisms", "Applications", "Sub-Categories"])
+    .range(["rgba(59, 130, 246, 0.15)", "rgba(245, 158, 11, 0.15)", "rgba(16, 185, 129, 0.15)", "rgba(139, 92, 246, 0.15)"]);
 
 const categoryBorderColors = d3.scaleOrdinal()
-    .domain(["Core Concepts", "Mechanisms", "Applications"])
-    .range(["#3b82f6", "#f59e0b", "#10b981"]);
-
-const baseClusterCenters = {
-    "Core Concepts": { x: 0, y: -150 },
-    "Mechanisms":    { x: -350, y: 200 },
-    "Applications":  { x: 350, y: 200 }
-};
+    .domain(["Core Concepts", "Mechanisms", "Applications", "Sub-Categories"])
+    .range(["#3b82f6", "#f59e0b", "#10b981", "#8b5cf6"]);
 
 const svg = d3.select('#canvas-container');
 const viewport = d3.select('#viewport');
@@ -43,27 +26,25 @@ const zoom = d3.zoom()
 svg.call(zoom);
 svg.call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth / 2, window.innerHeight / 2));
 
+// Initialize Force Simulation with distance-multiplier evaluation
 const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.type === 'correlation' ? 260 : 180))
-    .force('charge', d3.forceManyBody().strength(-1200))
-    .force('collide', d3.forceCollide().radius(130).iterations(3))
-    .force('clusterX', d3.forceX(d => baseClusterCenters[d.category]?.x || 0).strength(0.2))
-    .force('clusterY', d3.forceY(d => baseClusterCenters[d.category]?.y || 0).strength(0.2))
+    .force('link', d3.forceLink(links)
+        .id(d => d.id)
+        .distance(link => {
+            const baseDist = link.type === 'correlation' ? 180 : 120;
+            return baseDist * (link.target.distanceMultiplier || 1.0);
+        }))
+    .force('charge', d3.forceManyBody().strength(-1000))
+    .force('collide', d3.forceCollide().radius(120))
+    .force('center', d3.forceCenter(0, 0).strength(0.05))
     .on('tick', ticked);
 
 function getHullPath(groupNodes) {
-    if (!groupNodes || groupNodes.length === 0) return '';
-    
-    if (groupNodes.length === 1) {
-        const d = groupNodes[0];
-        const p = 60;
-        return `M ${d.x - p} ${d.y - p} L ${d.x + p} ${d.y - p} L ${d.x + p} ${d.y + p} L ${d.x - p} ${d.y + p} Z`;
-    }
-
     const points = [];
-    const padding = 55;
+    const padding = 50;
 
     groupNodes.forEach(d => {
+        if (d.x === undefined || d.y === undefined) return;
         points.push([d.x - 80 - padding, d.y - 30 - padding]);
         points.push([d.x + 80 + padding, d.y - 30 - padding]);
         points.push([d.x + 80 + padding, d.y + 30 + padding]);
@@ -97,6 +78,10 @@ function ticked() {
         .attr('x2', d => d.target.x)
         .attr('y2', d => d.target.y);
 
+    linksLayer.selectAll('text.link-label')
+        .attr('x', d => (d.source.x + d.target.x) / 2)
+        .attr('y', d => (d.source.y + d.target.y) / 2);
+
     nodesLayer.selectAll('g.node-group')
         .attr('transform', d => `translate(${d.x}, ${d.y})`);
 
@@ -104,14 +89,23 @@ function ticked() {
 }
 
 function updateSimulation() {
-    const linkSelection = linksLayer.selectAll('line')
+    // 1. Update Links
+    const linkSelection = linksLayer.selectAll('g.link-group')
         .data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
 
-    linkSelection.join(
-        enter => enter.append('line')
-            .attr('class', d => d.type === 'correlation' ? 'link-correlation' : 'link-precursor')
-    );
+    const linkEnter = linkSelection.enter().append('g').attr('class', 'link-group');
 
+    linkEnter.append('line')
+        .attr('class', d => d.type === 'correlation' ? 'link-correlation' : 'link-precursor');
+
+    linkEnter.filter(d => d.relationship)
+        .append('text')
+        .attr('class', 'link-label')
+        .text(d => d.relationship);
+
+    linkSelection.exit().remove();
+
+    // 2. Update Nodes using .join()
     const nodeSelection = nodesLayer.selectAll('g.node-group')
         .data(nodes, d => d.id);
 
@@ -119,6 +113,7 @@ function updateSimulation() {
         enter => {
             const nodeEnter = enter.append('g')
                 .attr('class', 'node-group')
+                .attr('data-type', d => d.nodeType)
                 .call(drag(simulation));
 
             nodeEnter.append('rect')
@@ -163,220 +158,180 @@ function drag(sim) {
         })
         .on('end', (e, d) => {
             if (!e.active) sim.alphaTarget(0);
-            d.fx = null; d.fy = null;
+            if (d.id !== 'root') {
+                d.fx = null; d.fy = null;
+            }
         });
 }
 
-function addNode(parentLabel, childLabel, definition = '', category = 'Mechanisms', isCorrelation = false) {
-    if (nodes.some(n => n.label.toLowerCase() === childLabel.toLowerCase())) return;
+// Drawer & Processing Actions
+const drawer = document.getElementById('input-drawer');
+const toggleBtn = document.getElementById('toggle-input-btn');
+const closeBtn = document.getElementById('close-drawer-btn');
+const processBtn = document.getElementById('process-notes-btn');
+const statusSpan = document.getElementById('status');
 
-    let parentNode = nodes.find(n => n.label.toLowerCase() === parentLabel.toLowerCase()) || nodes[0];
+toggleBtn.addEventListener('click', () => drawer.classList.remove('hidden'));
+closeBtn.addEventListener('click', () => drawer.classList.add('hidden'));
 
-    const newNode = {
-        id: 'node_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
-        label: childLabel,
-        category: category,
-        def: definition,
-        x: parentNode.x + (Math.random() - 0.5) * 50,
-        y: parentNode.y + (Math.random() - 0.5) * 50
-    };
-
-    nodes.push(newNode);
-    links.push({
-        source: parentNode.id,
-        target: newNode.id,
-        type: isCorrelation ? 'correlation' : 'precursor'
-    });
-
+function initializeRoot(rootLabel) {
+    nodes = [{
+        id: 'root',
+        label: rootLabel.toUpperCase(),
+        category: 'Core Concepts',
+        nodeType: 'sub-branch',
+        def: 'Central Branch',
+        distanceMultiplier: 1.0,
+        x: 0,
+        y: 0,
+        fx: 0,
+        fy: 0
+    }];
+    links = [];
     updateSimulation();
 }
 
-const listenBtn = document.getElementById('listen-btn');
-const statusSpan = document.getElementById('status');
-const preview = document.getElementById('transcript-preview');
+async function processSourceMaterial() {
+    const rawText = document.getElementById('notes-textarea').value.trim();
+    const rootLabel = document.getElementById('root-topic-input').value.trim() || "CAPSULES";
 
-let speechBuffer = "";
-let lastProcessTime = Date.now();
+    if (!rawText) {
+        alert("Please paste study material to process.");
+        return;
+    }
 
-function shouldProcessBuffer(buffer) {
-    const trimmed = buffer.trim();
-    const wordCount = trimmed.split(/\s+/).length;
-    const hasSentenceEnd = /[.?!]$/.test(trimmed);
-    const timeElapsed = Date.now() - lastProcessTime;
+    if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR_VALID")) {
+        statusSpan.textContent = "Status: Set a valid GEMINI_API_KEY in app.js";
+        return;
+    }
 
-    if (wordCount >= 12 && hasSentenceEnd) return true;
-    if (wordCount >= 20) return true;
-    if (wordCount >= 8 && timeElapsed > 6000) return true;
+    statusSpan.textContent = "Status: Assessing & Structuring Material...";
+    initializeRoot(rootLabel);
 
-    return false;
-}
+    const prompt = `Analyze this study material and structure it into a multi-directional concept map rooted at "${rootLabel}".
 
-async function processSpeechWithAI(transcriptChunk) {
-    speechBuffer += " " + transcriptChunk;
-    
-    if (!shouldProcessBuffer(speechBuffer)) return;
+Source Material:
+"${rawText}"
 
-    const textToProcess = speechBuffer.trim();
-    speechBuffer = "";
-    lastProcessTime = Date.now();
+Formatting & Branching Rules:
+1. Identify if information is a "sub-branch" (a category umbrella, e.g., "Types of Capsules") or a "detail" (definition, property, formula, e.g., "Enclosed in gelatin").
+2. For "sub-branch" nodes, set "distanceMultiplier": 2.0 (creates 2x visual distance).
+3. For "detail" nodes, set "distanceMultiplier": 1.0.
+4. Extract relationships/correlations between concepts (e.g., comparisons like "<", ">", "precursor to", "inhibits"). Add these as cross-links in the "correlations" array.
+
+Return ONLY a JSON array matching the required schema.`;
 
     try {
-        statusSpan.textContent = "Status: AI parsing concepts...";
-
-        const prompt = `Extract distinct concepts from this transcript segment.
-
-Transcript: "${textToProcess}"
-
-Existing Canvas Concepts: ${JSON.stringify(nodes.map(n => n.label))}
-
-Instructions:
-1. Extract distinct technical or academic concepts.
-2. Link new concepts to a parent concept from Existing Canvas Concepts or "MAIN SUBJECT".
-3. Assign category as "Core Concepts", "Mechanisms", or "Applications".
-4. Short definition under 10 words.`;
-
-        let response;
-
-        if (API_CONFIG.useProxy) {
-            response = await fetch(API_CONFIG.proxyEndpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt, nodes: nodes.map(n => n.label) })
-            });
-        } else {
-            const cleanKey = API_CONFIG.geminiKey ? API_CONFIG.geminiKey.trim() : "";
-            if (!cleanKey || cleanKey.includes("YOUR_VALID")) {
-                statusSpan.textContent = "Status: Error - Set a valid AIzaSy... key in app.js";
-                return;
-            }
-
-            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(cleanKey)}`;
-            
-            response = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        responseMimeType: "application/json",
-                        responseSchema: {
-                            type: "ARRAY",
-                            items: {
-                                type: "OBJECT",
-                                properties: {
-                                    parentLabel: { type: "STRING" },
-                                    childLabel: { type: "STRING" },
-                                    definition: { type: "STRING" },
-                                    category: { type: "STRING" },
-                                    isCorrelation: { type: "BOOLEAN" }
-                                },
-                                required: ["parentLabel", "childLabel", "definition", "category"]
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            nodes: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        id: { type: "STRING" },
+                                        parentId: { type: "STRING" },
+                                        label: { type: "STRING" },
+                                        definition: { type: "STRING" },
+                                        nodeType: { type: "STRING", enum: ["sub-branch", "detail"] },
+                                        category: { type: "STRING" },
+                                        distanceMultiplier: { type: "NUMBER" }
+                                    },
+                                    required: ["id", "parentId", "label", "definition", "nodeType", "distanceMultiplier"]
+                                }
+                            },
+                            correlations: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        sourceId: { type: "STRING" },
+                                        targetId: { type: "STRING" },
+                                        relationship: { type: "STRING" }
+                                    },
+                                    required: ["sourceId", "targetId", "relationship"]
+                                }
                             }
-                        }
+                        },
+                        required: ["nodes"]
                     }
-                })
-            });
-        }
+                }
+            })
+        });
 
         const data = await response.json();
-
+        
         if (data.error) {
-            console.error("Gemini API Error Payload:", data.error);
-            statusSpan.textContent = `Status: API Error (${data.error.message})`;
+            statusSpan.textContent = `Error: ${data.error.message}`;
             return;
         }
 
-        const rawText = API_CONFIG.useProxy ? data.text : data.candidates[0].content.parts[0].text;
-        const extractedNodes = JSON.parse(rawText);
+        const payload = JSON.parse(data.candidates[0].content.parts[0].text);
 
-        if (Array.isArray(extractedNodes)) {
-            extractedNodes.forEach(item => {
-                if (item.childLabel && item.childLabel.length > 1) {
-                    addNode(
-                        item.parentLabel || "MAIN SUBJECT",
-                        item.childLabel.toUpperCase(),
-                        item.definition || "",
-                        item.category || "Mechanisms",
-                        item.isCorrelation || false
-                    );
-                }
+        // Map extracted nodes into simulation array
+        payload.nodes.forEach(item => {
+            nodes.push({
+                id: item.id,
+                label: item.label.toUpperCase(),
+                category: item.category || (item.nodeType === 'sub-branch' ? 'Sub-Categories' : 'Mechanisms'),
+                nodeType: item.nodeType,
+                def: item.definition,
+                distanceMultiplier: item.distanceMultiplier || 1.0,
+                x: (Math.random() - 0.5) * 100,
+                y: (Math.random() - 0.5) * 100
+            });
+
+            links.push({
+                source: item.parentId === 'root' || !item.parentId ? 'root' : item.parentId,
+                target: item.id,
+                type: 'precursor'
+            });
+        });
+
+        // Add correlation cross-links (e.g. < or > relations)
+        if (payload.correlations) {
+            payload.correlations.forEach(rel => {
+                links.push({
+                    source: rel.sourceId,
+                    target: rel.targetId,
+                    type: 'correlation',
+                    relationship: rel.relationship
+                });
             });
         }
 
-        statusSpan.textContent = "Status: Listening...";
+        updateSimulation();
+        statusSpan.textContent = "Status: Map rendered successfully.";
+        drawer.classList.add('hidden');
+
     } catch (err) {
-        console.error("Processing Exception:", err);
-        statusSpan.textContent = `Status: AI Error - ${err.message || 'Check Browser Console'}`;
+        console.error("API Processing Error:", err);
+        statusSpan.textContent = `Status: Parsing failed (${err.message})`;
     }
 }
 
-if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    let isListening = false;
-
-    recognition.onend = () => {
-        if (isListening) recognition.start();
-    };
-
-    listenBtn.addEventListener('click', () => {
-        if (!isListening) {
-            isListening = true;
-            recognition.start();
-            listenBtn.classList.add('recording');
-            listenBtn.textContent = 'Stop Listening';
-            statusSpan.textContent = 'Status: Listening audio stream...';
-        } else {
-            isListening = false;
-            recognition.stop();
-            listenBtn.classList.remove('recording');
-            listenBtn.textContent = 'Start Listening';
-            statusSpan.textContent = 'Status: Idle';
-        }
-    });
-
-    recognition.onresult = (event) => {
-        let interimTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                const finalChunk = event.results[i][0].transcript;
-                preview.textContent = finalChunk;
-                processSpeechWithAI(finalChunk);
-            } else {
-                interimTranscript += event.results[i][0].transcript;
-                preview.textContent = interimTranscript;
-            }
-        }
-    };
-} else {
-    statusSpan.textContent = 'Status: Web Speech API unsupported in browser.';
-}
-
-document.getElementById('add-demo-btn').addEventListener('click', () => {
-    const term = prompt("Enter Concept Name (e.g., PHOTOSYNTHESIS):");
-    if (!term) return;
-    
-    const parent = prompt("Parent Concept (or leave blank for MAIN SUBJECT):") || "MAIN SUBJECT";
-    const def = prompt("Short Definition:") || "";
-    const category = prompt("Category (Core Concepts / Mechanisms / Applications):") || "Mechanisms";
-
-    addNode(parent, term.toUpperCase(), def, category, false);
-});
+processBtn.addEventListener('click', processSourceMaterial);
 
 document.getElementById('export-btn').addEventListener('click', () => {
-    const exportData = { 
-        nodes: nodes.map(n => ({ id: n.id, label: n.label, category: n.category, def: n.def })), 
-        links: links.map(l => ({ source: l.source.id || l.source, target: l.target.id || l.target, type: l.type })) 
-    };
+    const exportData = { nodes, links };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const a = document.createElement('a');
     a.setAttribute("href", dataStr);
-    a.setAttribute("download", "lecture_schema.json");
+    a.setAttribute("download", "concept_map.json");
     document.body.appendChild(a);
     a.click();
     a.remove();
 });
 
-updateSimulation();
+// Default canvas load
+initializeRoot("CAPSULES");
