@@ -3,21 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Speech to Concept Graph</title>
-    <link rel="stylesheet" href="styles.css">
-    
-    <!-- D3.js Library -->
+    <title>Dynamic Concept Map Generator</title>
+    <link rel="stylesheet" href="style.css">
     <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
-    <div id="controls">
-        <button id="listen-btn">Start Listening</button>
-        <button id="add-demo-btn">Add Manual Concept</button>
-        <button id="export-btn">Export Schema</button>
-        <span id="status">Status: Idle</span>
+    <div id="ui-container">
+        <div class="control-panel">
+            <h2>Concept Map Builder</h2>
+            <div id="status">Status: Ready for input</div>
+            <button id="toggle-input-btn">Open Note Input</button>
+            <button id="export-btn">Export JSON</button>
+        </div>
     </div>
 
-    <div id="transcript-preview"></div>
+    <div id="input-drawer" class="drawer hidden">
+        <div class="drawer-header">
+            <h3>Paste Study Material</h3>
+            <button id="close-drawer-btn">&times;</button>
+        </div>
+        <div class="drawer-body">
+            <label for="root-topic-input">Central Topic (Root Node):</label>
+            <input type="text" id="root-topic-input" value="Capsules" placeholder="e.g. Capsules">
+
+            <label for="notes-textarea">Study Notes / Source Material:</label>
+            <textarea id="notes-textarea" placeholder="Paste your lectures, notes, or study text here..."></textarea>
+            
+            <button id="process-notes-btn">Generate Concept Map</button>
+        </div>
+    </div>
 
     <svg id="canvas-container">
         <g id="viewport">
