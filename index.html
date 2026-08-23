@@ -3,34 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dynamic Concept Map Generator</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Concept Map Generator</title>
+    
+    <!-- D3.js Library -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <!-- Official Google Gen AI SDK Import Map -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.run/@google/genai"
+        }
+      }
+    </script>
+
+    <style>
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background-color: #0f172a; color: #f8fafc; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        .hidden { display: none !important; }
+        
+        /* Drawer & UI Styling */
+        #input-drawer { position: absolute; top: 20px; left: 20px; width: 320px; background: rgba(30, 41, 59, 0.95); border: 1px solid #334155; padding: 16px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); z-index: 10; }
+        #toggle-input-btn { position: absolute; top: 20px; left: 20px; z-index: 5; padding: 10px 16px; background: #3b82f6; border: none; color: white; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        textarea, input { width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 4px; margin-bottom: 12px; }
+        button.action-btn { width: 100%; padding: 10px; background: #10b981; border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; margin-bottom: 8px; }
+        button.close-btn { width: 100%; padding: 6px; background: transparent; border: 1px solid #475569; color: #94a3b8; border-radius: 4px; cursor: pointer; }
+        #status { display: block; font-size: 12px; color: #94a3b8; margin-top: 8px; }
+
+        /* SVG Graph Styling */
+        .node-rect { fill: #1e293b; stroke: #475569; stroke-width: 2px; rx: 6px; }
+        .node-title { fill: #f8fafc; font-size: 12px; font-weight: bold; }
+        .node-def { fill: #94a3b8; font-size: 10px; }
+        .link-precursor { stroke: #475569; stroke-width: 2px; }
+        .link-correlation { stroke: #f59e0b; stroke-width: 1.5px; stroke-dasharray: 4,4; }
+        .link-label { fill: #f59e0b; font-size: 10px; text-anchor: middle; }
+    </style>
 </head>
 <body>
-    <div id="ui-container">
-        <div class="control-panel">
-            <h2>Concept Map Builder</h2>
-            <div id="status">Status: Ready for input</div>
-            <button id="toggle-input-btn">Open Note Input</button>
-            <button id="export-btn">Export JSON</button>
-        </div>
-    </div>
 
-    <div id="input-drawer" class="drawer hidden">
-        <div class="drawer-header">
-            <h3>Paste Study Material</h3>
-            <button id="close-drawer-btn">&times;</button>
-        </div>
-        <div class="drawer-body">
-            <label for="root-topic-input">Central Topic (Root Node):</label>
-            <input type="text" id="root-topic-input" value="Capsules" placeholder="e.g. Capsules">
+    <button id="toggle-input-btn">Open Control Panel</button>
 
-            <label for="notes-textarea">Study Notes / Source Material:</label>
-            <textarea id="notes-textarea" placeholder="Paste your lectures, notes, or study text here..."></textarea>
-            
-            <button id="process-notes-btn">Generate Concept Map</button>
-        </div>
+    <div id="input-drawer" class="hidden">
+        <h3>Concept Map Generator</h3>
+        <label for="root-topic-input" style="font-size: 12px;">Root Concept Topic:</label>
+        <input type="text" id="root-topic-input" value="CAPSULES" placeholder="e.g., CAPSULES">
+
+        <label for="notes-textarea" style="font-size: 12px;">Study Material:</label>
+        <textarea id="notes-textarea" rows="8" placeholder="Paste study material here..."></textarea>
+
+        <button id="process-notes-btn" class="action-btn">Generate Concept Map</button>
+        <button id="export-btn" class="action-btn" style="background: #6366f1;">Export JSON</button>
+        <button id="close-drawer-btn" class="close-btn">Close Panel</button>
+
+        <span id="status">Status: Ready</span>
     </div>
 
     <svg id="canvas-container">
@@ -41,6 +66,7 @@
         </g>
     </svg>
 
-    <script src="app.js"></script>
+    <!-- MUST be type="module" -->
+    <script type="module" src="app.js"></script>
 </body>
 </html>
