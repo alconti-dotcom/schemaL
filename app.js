@@ -1,5 +1,5 @@
-// REPLACE WITH YOUR ACTUAL API KEY (AIzaSy...)
-const GEMINI_API_KEY = "AQ.Ab8RN6IFRuIJQNLEqZBqPRjy2NIP9f2nWu5v803yo_HwlslROA";
+// Your generated API / Auth key
+const GEMINI_API_KEY = "AQ.Ab8RN6LaBx8ut6Oj0A6KEPmmlPuc6k8C8J7eJjSIlwdtOKAKcQ";
 
 // Graph Data Stores
 let nodes = [];
@@ -26,7 +26,7 @@ const zoom = d3.zoom()
 svg.call(zoom);
 svg.call(zoom.transform, d3.zoomIdentity.translate(window.innerWidth / 2, window.innerHeight / 2));
 
-// Initialize Force Simulation with distance-multiplier evaluation
+// Initialize Force Simulation
 const simulation = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links)
         .id(d => d.id)
@@ -90,7 +90,6 @@ function ticked() {
 }
 
 function updateSimulation() {
-    // 1. Update Links
     const linkSelection = linksLayer.selectAll('g.link-group')
         .data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
 
@@ -106,7 +105,6 @@ function updateSimulation() {
 
     linkSelection.exit().remove();
 
-    // 2. Update Nodes using .join()
     const nodeSelection = nodesLayer.selectAll('g.node-group')
         .data(nodes, d => d.id);
 
@@ -203,8 +201,8 @@ async function processSourceMaterial() {
         return;
     }
 
-    if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR_VALID")) {
-        statusSpan.textContent = "Status: Set a valid GEMINI_API_KEY in app.js";
+    if (!GEMINI_API_KEY) {
+        statusSpan.textContent = "Status: Set a valid GEMINI_API_KEY in your code.";
         return;
     }
 
@@ -225,11 +223,14 @@ Formatting & Branching Rules:
 Return ONLY a JSON array matching the required schema.`;
 
     try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
         
         const response = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${GEMINI_API_KEY}`
+            },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
@@ -282,7 +283,6 @@ Return ONLY a JSON array matching the required schema.`;
         const payload = JSON.parse(data.candidates[0].content.parts[0].text);
         const validNodeIds = new Set(['root']);
 
-        // Register new nodes safely
         payload.nodes.forEach(item => {
             validNodeIds.add(item.id);
             nodes.push({
@@ -297,7 +297,6 @@ Return ONLY a JSON array matching the required schema.`;
             });
         });
 
-        // Link parent-child trees with fallback validation
         payload.nodes.forEach(item => {
             const sourceId = validNodeIds.has(item.parentId) ? item.parentId : 'root';
             links.push({
@@ -307,7 +306,6 @@ Return ONLY a JSON array matching the required schema.`;
             });
         });
 
-        // Add correlation cross-links securely
         if (payload.correlations) {
             payload.correlations.forEach(rel => {
                 if (validNodeIds.has(rel.sourceId) && validNodeIds.has(rel.targetId)) {
