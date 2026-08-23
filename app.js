@@ -32,7 +32,8 @@ const simulation = d3.forceSimulation(nodes)
         .id(d => d.id)
         .distance(link => {
             const baseDist = link.type === 'correlation' ? 180 : 120;
-            return baseDist * (link.target.distanceMultiplier || 1.0);
+            const targetMultiplier = typeof link.target === 'object' ? link.target.distanceMultiplier : 1.0;
+            return baseDist * (targetMultiplier || 1.0);
         }))
     .force('charge', d3.forceManyBody().strength(-1000))
     .force('collide', d3.forceCollide().radius(120))
@@ -139,7 +140,9 @@ function updateSimulation() {
                 });
 
             return nodeEnter;
-        }
+        },
+        update => update,
+        exit => exit.remove()
     );
 
     simulation.nodes(nodes);
@@ -222,7 +225,7 @@ Formatting & Branching Rules:
 Return ONLY a JSON array matching the required schema.`;
 
     try {
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         
         const response = await fetch(endpoint, {
             method: 'POST',
@@ -277,9 +280,11 @@ Return ONLY a JSON array matching the required schema.`;
         }
 
         const payload = JSON.parse(data.candidates[0].content.parts[0].text);
+        const validNodeIds = new Set(['root']);
 
-        // Map extracted nodes into simulation array
+        // Register new nodes safely
         payload.nodes.forEach(item => {
+            validNodeIds.add(item.id);
             nodes.push({
                 id: item.id,
                 label: item.label.toUpperCase(),
@@ -290,23 +295,29 @@ Return ONLY a JSON array matching the required schema.`;
                 x: (Math.random() - 0.5) * 100,
                 y: (Math.random() - 0.5) * 100
             });
+        });
 
+        // Link parent-child trees with fallback validation
+        payload.nodes.forEach(item => {
+            const sourceId = validNodeIds.has(item.parentId) ? item.parentId : 'root';
             links.push({
-                source: item.parentId === 'root' || !item.parentId ? 'root' : item.parentId,
+                source: sourceId,
                 target: item.id,
                 type: 'precursor'
             });
         });
 
-        // Add correlation cross-links (e.g. < or > relations)
+        // Add correlation cross-links securely
         if (payload.correlations) {
             payload.correlations.forEach(rel => {
-                links.push({
-                    source: rel.sourceId,
-                    target: rel.targetId,
-                    type: 'correlation',
-                    relationship: rel.relationship
-                });
+                if (validNodeIds.has(rel.sourceId) && validNodeIds.has(rel.targetId)) {
+                    links.push({
+                        source: rel.sourceId,
+                        target: rel.targetId,
+                        type: 'correlation',
+                        relationship: rel.relationship
+                    });
+                }
             });
         }
 
