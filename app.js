@@ -1,5 +1,5 @@
 // REPLACE WITH YOUR ACTUAL API KEY (AIzaSy...)
-const GEMINI_API_KEY = "YOUR_VALID_GEMINI_API_KEY_HERE";
+const GEMINI_API_KEY = "AQ.Ab8RN6IFRuIJQNLEqZBqPRjy2NIP9f2nWu5v803yo_HwlslROA";
 
 // Graph Data Stores
 let nodes = [];
