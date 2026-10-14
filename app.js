@@ -1,6 +1,8 @@
+'use strict';
 const $ = id => document.getElementById(id);
 const FONT = 'Arial, Helvetica, sans-serif';
 const GROUP = '#2A9D8F';
+const API = 'https://generativelanguage.googleapis.com/v1beta';
 const COLORS = {
   term:'#E63946', definition:'#457B9D', member:'#2A9D8F', value:'#F4A261',
   person:'#9B5DE5', substance:'#00B4D8', structure:'#6C757D', concept:'#7B2CBF',
@@ -12,11 +14,7 @@ const NAMES = {
   concept:'Name / concept', plant:'Name / plant', creature:'Name / creature',
   food:'Name / food', label:'Label', quotation:'Quotation'
 };
-
-/* ---------- legend ---------- */
-$('legend').innerHTML = Object.keys(COLORS).map(k =>
-  `<span style="background:${COLORS[k]};color:${lum(COLORS[k]) > .55 ? '#111' : '#fff'}">${NAMES[k]}</span>`).join('') +
-  `<span style="background:linear-gradient(90deg,${GROUP},#888)">Gradient = member of a group</span>`;
+const S = {model: 'gemini-3.8-flash', partial: false};
 
 /* ---------- helpers ---------- */
 function hex2rgb(h){ h = h.replace('#',''); return [0,2,4].map(i => parseInt(h.substr(i,2),16)); }
@@ -24,14 +22,61 @@ function lum(h){ const [r,g,b] = hex2rgb(h); return (0.299*r + 0.587*g + 0.114*b
 function mix(a,b){ const A = hex2rgb(a), B = hex2rgb(b);
   return '#' + A.map((v,i) => Math.round((v+B[i])/2).toString(16).padStart(2,'0')).join(''); }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const status = m => $('status').textContent = m;
+const status = m => { $('status').textContent = m; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-try { $('key').value = localStorage.getItem('gkey') || ''; } catch(e){}
+$('legend').innerHTML = Object.keys(COLORS).map(k =>
+  `<span style="background:${COLORS[k]};color:${lum(COLORS[k]) > .55 ? '#111' : '#fff'}">${NAMES[k]}</span>`).join('') +
+  `<span style="background:linear-gradient(90deg,${GROUP},#888)">Gradient = member of a group</span>`;
+
+try {
+  $('key').value = localStorage.getItem('gkey') || '';
+  const m = localStorage.getItem('gmodel'); if (m) $('model').value = m;
+} catch(e){}
+
+/* ---------- error reporting ---------- */
+const LOG = [];
+function log(m){ LOG.push(new Date().toISOString().slice(11,19) + ' ' + m); if (LOG.length > 40) LOG.shift(); }
+class ApiError extends Error {
+  constructor(msg, status, body){ super(msg); this.name = 'ApiError'; this.status = status; this.body = body; }
+}
+function buildReport(stage, err){
+  const e = err || {};
+  return [
+    'MINDMAPPER ERROR REPORT',
+    'Stage: ' + stage,
+    'Message: ' + (e.message || String(err)),
+    e.status ? 'HTTP status: ' + e.status : '',
+    e.body ? 'API response: ' + String(e.body).slice(0, 900) : '',
+    'Model: ' + ($('model').value || S.model),
+    'Text length: ' + $('text').value.length,
+    'Libraries loaded: pdf.js=' + (typeof pdfjsLib !== 'undefined') + ' mammoth=' + (typeof mammoth !== 'undefined') +
+      ' jspdf=' + !!(window.jspdf) + ' svg2pdf=' + !!(window.svg2pdf),
+    'Page: ' + location.href.split('?')[0],
+    'Browser: ' + navigator.userAgent,
+    '--- recent log ---', ...LOG,
+    e.stack ? '--- stack ---\n' + String(e.stack).split('\n').slice(0, 4).join('\n') : ''
+  ].filter(Boolean).join('\n');
+}
+function showError(stage, err){
+  if (err && err.name === 'AbortError') return status('Cancelled.');
+  $('errtxt').value = buildReport(stage, err);
+  $('err').hidden = false; $('panel').open = true;
+  status('Something went wrong — see the error report below.');
+}
+$('copyerr').onclick = async () => {
+  const t = $('errtxt'); t.select();
+  try { await navigator.clipboard.writeText(t.value); } catch(e){ document.execCommand('copy'); }
+  status('Error report copied. Paste it to Claude.');
+};
+window.addEventListener('error', ev => showError('Unexpected script error', ev.error || new Error(ev.message)));
+window.addEventListener('unhandledrejection', ev => showError('Unexpected async error', ev.reason));
 
 /* ---------- reading files ---------- */
 async function readFile(f){
   const n = f.name.toLowerCase();
   if (n.endsWith('.pdf')) {
+    if (typeof pdfjsLib === 'undefined') throw new Error('PDF reader library did not load (blocked or offline).');
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     const pdf = await pdfjsLib.getDocument({data: await f.arrayBuffer()}).promise;
     let t = '';
@@ -39,20 +84,28 @@ async function readFile(f){
       const c = await (await pdf.getPage(i)).getTextContent();
       t += c.items.map(x => x.str).join(' ') + '\n';
     }
+    if (t.trim().length < 20) throw new Error('No readable text found in this PDF (it may be a scan/image).');
     return t;
   }
-  if (n.endsWith('.docx')) return (await mammoth.extractRawText({arrayBuffer: await f.arrayBuffer()})).value;
+  if (n.endsWith('.docx')) {
+    if (typeof mammoth === 'undefined') throw new Error('Word reader library did not load (blocked or offline).');
+    return (await mammoth.extractRawText({arrayBuffer: await f.arrayBuffer()})).value;
+  }
   return f.text();
 }
 $('file').addEventListener('change', async e => {
-  status('Reading files…');
   let t = $('text').value;
-  for (const f of e.target.files) t += (t ? '\n\n' : '') + await readFile(f);
+  for (const f of e.target.files) {
+    status('Reading ' + f.name + '…');
+    try { t += (t ? '\n\n' : '') + await readFile(f); }
+    catch (err) { return showError('Reading file "' + f.name + '"', err); }
+  }
   $('text').value = t;
   status('Loaded ' + t.length.toLocaleString() + ' characters.');
 });
+$('clear').onclick = () => { $('text').value = ''; $('file').value = ''; $('err').hidden = true; status('Cleared.'); };
 
-/* ---------- AI: text -> tree ---------- */
+/* ---------- Gemini ---------- */
 const SYS = `You turn text into a mind-map tree. Output ONLY valid JSON, no markdown.
 Node format: {"t":"short text","k":"type","m":true|false,"c":[children]}
 Types (k): term, definition, member, value, person, substance, structure, concept, plant, creature, food, label, quotation.
@@ -64,9 +117,10 @@ Rules:
 - Keep every node concise (max 10 words) but DO NOT drop any fact, name, number or detail from the text: split long sentences into several small nodes. Never invent information.
 - Use the most specific type for names (person, substance, structure, concept, plant, creature, food).`;
 
-function chunkText(t, max = 9000){
-  const paras = t.split(/\n\s*\n|\n/), out = []; let cur = '';
-  for (const p of paras) {
+function chunkText(t, max = 12000){
+  const out = []; let cur = '';
+  for (let p of t.split(/\n+/)) {
+    while (p.length > max) { if (cur) { out.push(cur); cur = ''; } out.push(p.slice(0, max)); p = p.slice(max); }
     if ((cur + p).length > max && cur) { out.push(cur); cur = ''; }
     cur += p + '\n';
   }
@@ -74,24 +128,82 @@ function chunkText(t, max = 9000){
   return out;
 }
 
-async function askGemini(prompt, key, model){
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        contents: [{parts: [{text: prompt}]}],
-        generationConfig: {responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 30000}
-      })
-    });
-    if (r.status === 429 || r.status === 503) { await new Promise(s => setTimeout(s, 4000 * (attempt + 1))); continue; }
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error?.message || 'API error ' + r.status);
-    const txt = j.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
-    return JSON.parse(txt.replace(/^```json|```$/g, '').trim());
+async function listModels(key, signal){
+  const r = await fetch(API + '/models?pageSize=200', {signal, headers: {'x-goog-api-key': key}});
+  const raw = await r.text(); let j = null; try { j = JSON.parse(raw); } catch(e){}
+  if (!r.ok) throw new ApiError(j?.error?.message || 'HTTP ' + r.status, r.status, raw);
+  return (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map(m => m.name.replace(/^models\//, ''));
+}
+async function pickModel(key, signal){
+  const ok = (await listModels(key, signal)).filter(n => /flash/.test(n) && !/lite|image|tts|audio|live|embed|thinking|exp/.test(n));
+  ok.sort((a, b) => b.localeCompare(a, undefined, {numeric: true}));
+  return ok[0] || null;
+}
+
+async function callGemini(model, prompt, key, signal, withMax){
+  const cfg = {responseMimeType: 'application/json', temperature: 0.2};
+  if (withMax) cfg.maxOutputTokens = 16384;
+  const r = await fetch(`${API}/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST', signal,
+    headers: {'Content-Type': 'application/json', 'x-goog-api-key': key},
+    body: JSON.stringify({contents: [{parts: [{text: prompt}]}], generationConfig: cfg})
+  });
+  const raw = await r.text(); let j = null; try { j = JSON.parse(raw); } catch(e){}
+  if (!r.ok) throw new ApiError(j?.error?.message || 'HTTP ' + r.status, r.status, raw);
+  const cand = j?.candidates?.[0];
+  const txt = (cand?.content?.parts || []).map(p => p.text || '').join('');
+  if (!txt) throw new ApiError('Empty response (reason: ' + (cand?.finishReason || j?.promptFeedback?.blockReason || 'unknown') + ')', r.status, raw);
+  return txt;
+}
+
+function repairJSON(s){
+  const stack = []; let inStr = false, esc2 = false, cut = -1, cutStack = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) { if (esc2) esc2 = false; else if (ch === '\\') esc2 = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true;
+    else if (ch === '{' || ch === '[') stack.push(ch);
+    else if (ch === '}' || ch === ']') { stack.pop(); cut = i + 1; cutStack = stack.slice(); }
   }
-  throw new Error('The API is busy. Try again in a minute.');
+  if (cut < 0) throw new Error('No complete JSON found');
+  return s.slice(0, cut) + cutStack.reverse().map(c => c === '{' ? '}' : ']').join('');
+}
+function parseTree(txt){
+  const clean = txt.replace(/^\s*```(?:json)?/i, '').replace(/```\s*$/, '').trim();
+  let o;
+  try { o = JSON.parse(clean); }
+  catch (e1) {
+    try { o = JSON.parse(repairJSON(clean)); S.partial = true; log('Repaired cut-off JSON'); }
+    catch (e2) { throw new Error('Gemini returned invalid JSON. Start of reply: ' + clean.slice(0, 200)); }
+  }
+  if (Array.isArray(o)) o = o[0];
+  if (!o || typeof o !== 'object') throw new Error('Gemini reply was not a mind-map object.');
+  return normalize(o);
+}
+
+async function askGemini(prompt, key, signal){
+  let withMax = true, tries = 0, switched = false;
+  for (;;) {
+    const used = S.model;
+    try {
+      log('Request → ' + used);
+      return parseTree(await callGemini(used, prompt, key, signal, withMax));
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      const st = e.status || 0, m = (e.message || '').toLowerCase();
+      log('Failed: ' + (st || '') + ' ' + (e.message || '').slice(0, 120));
+      if ([429, 500, 503].includes(st) && tries < 3) { tries++; await sleep(3000 * tries); continue; }
+      if (st === 400 && withMax && m.includes('output')) { withMax = false; continue; }
+      if (S.model !== used) continue;
+      if (!switched && (st === 404 || m.includes('no longer available') || m.includes('not found'))) {
+        switched = true;
+        const alt = await pickModel(key, signal);
+        if (alt && alt !== used) { S.model = alt; $('model').value = alt; log('Switched model to ' + alt); continue; }
+      }
+      throw e;
+    }
+  }
 }
 
 function normalize(n){
@@ -99,7 +211,7 @@ function normalize(n){
     t: String(n.t || '').trim() || '…',
     k: COLORS[n.k] ? n.k : 'label',
     m: !!n.m,
-    c: (Array.isArray(n.c) ? n.c : []).map(normalize)
+    c: (Array.isArray(n.c) ? n.c : []).filter(x => x && typeof x === 'object').map(normalize)
   };
 }
 function merge(base, add){
@@ -108,9 +220,17 @@ function merge(base, add){
     if (hit) merge(hit, c); else base.c.push(c);
   }
 }
+async function pool(items, n, fn){
+  const out = new Array(items.length); let i = 0;
+  await Promise.all(Array.from({length: Math.min(n, items.length)}, async () => {
+    while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
+  }));
+  return out;
+}
 
 /* ---------- layout (radial + overlap removal) ---------- */
 const ctx = document.createElement('canvas').getContext('2d');
+const PAD = 18;
 
 function measure(n, isRoot){
   ctx.font = (isRoot ? '700 17px ' : '600 13px ') + FONT;
@@ -125,10 +245,40 @@ function measure(n, isRoot){
   n.w = Math.ceil(Math.max(...lines.map(l => ctx.measureText(l).width))) + 26;
   n.h = lines.length * n.lh + 14;
 }
+function hit(a, b){
+  return (a.w + b.w) / 2 + PAD - Math.abs(b.x - a.x) > 0 && (a.h + b.h) / 2 + PAD - Math.abs(b.y - a.y) > 0;
+}
+function hasOverlap(all){
+  for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) if (hit(all[i], all[j])) return true;
+  return false;
+}
+function relax(all, ms){
+  const t0 = performance.now();
+  for (let it = 0; it < 4000; it++) {
+    let moved = false;
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+      const a = all[i], b = all[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const ox = (a.w + b.w) / 2 + PAD - Math.abs(dx), oy = (a.h + b.h) / 2 + PAD - Math.abs(dy);
+      if (ox > 0 && oy > 0) {
+        moved = true;
+        const fa = a.d === 0 ? 0 : (b.d === 0 ? 1 : .5), fb = b.d === 0 ? 0 : (a.d === 0 ? 1 : .5);
+        if (ox < oy) {
+          const s = dx === 0 ? (Math.random() < .5 ? -1 : 1) : Math.sign(dx), m = ox + 1;
+          a.x -= s * m * fa; b.x += s * m * fb;
+        } else {
+          const s = dy === 0 ? (Math.random() < .5 ? -1 : 1) : Math.sign(dy), m = oy + 1;
+          a.y -= s * m * fa; b.y += s * m * fb;
+        }
+      }
+    }
+    if (!moved || performance.now() - t0 > ms) break;
+  }
+}
 
 function layout(root){
   const all = [];
-  (function walk(n, d, p){ n.d = d; n.p = p; all.push(n); n.c.forEach(c => walk(c, d + 1, n)); })(root, 0, null);
+  (function walk(n, d, p){ n.d = d; n.p = p; n.id = all.length; all.push(n); n.c.forEach(c => walk(c, d + 1, n)); })(root, 0, null);
   all.forEach(n => measure(n, n.d === 0));
   (function leaves(n){ n.l = n.c.length ? n.c.reduce((s, c) => s + leaves(c), 0) : 1; return n.l; })(root);
 
@@ -150,28 +300,12 @@ function layout(root){
     }
   })(root, 0, Math.PI * 2);
 
-  // push overlapping boxes apart until none touch
-  const PAD = 18;
-  for (let it = 0; it < 5000; it++) {
-    let moved = false;
-    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
-      const a = all[i], b = all[j];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const ox = (a.w + b.w) / 2 + PAD - Math.abs(dx), oy = (a.h + b.h) / 2 + PAD - Math.abs(dy);
-      if (ox > 0 && oy > 0) {
-        moved = true;
-        const fa = a.d === 0 ? 0 : (b.d === 0 ? 1 : .5), fb = b.d === 0 ? 0 : (a.d === 0 ? 1 : .5);
-        if (ox < oy) {
-          const s = dx === 0 ? (Math.random() < .5 ? -1 : 1) : Math.sign(dx), m = ox + 1;
-          a.x -= s * m * fa; b.x += s * m * fb;
-        } else {
-          const s = dy === 0 ? (Math.random() < .5 ? -1 : 1) : Math.sign(dy), m = oy + 1;
-          a.y -= s * m * fa; b.y += s * m * fb;
-        }
-      }
-    }
-    if (!moved) break;
+  relax(all, 3000);
+  for (let r = 0; r < 8 && hasOverlap(all); r++) {
+    all.forEach(n => { n.x *= 1.15; n.y *= 1.15; });
+    relax(all, 1500);
   }
+  if (hasOverlap(all)) log('Warning: some boxes may still touch');
   return all;
 }
 
@@ -186,7 +320,7 @@ function render(all){
     let fill = base, txtBase = base;
     if (grouped) {
       const ux = n.p.x - n.x, uy = n.p.y - n.y, len = Math.hypot(ux, uy) || 1, dx = ux / len, dy = uy / len;
-      defs += `<linearGradient id="g${n.id}" x1="${.5 + dx * .5}" y1="${.5 + dy * .5}" x2="${.5 - dx * .5}" y2="${.5 - dy * .5}">` +
+      defs += `<linearGradient id="g${n.id}" x1="${(.5 + dx * .5).toFixed(3)}" y1="${(.5 + dy * .5).toFixed(3)}" x2="${(.5 - dx * .5).toFixed(3)}" y2="${(.5 - dy * .5).toFixed(3)}">` +
               `<stop offset="0" stop-color="${GROUP}"/><stop offset="1" stop-color="${base}"/></linearGradient>`;
       fill = `url(#g${n.id})`; txtBase = mix(GROUP, base);
     }
@@ -219,6 +353,7 @@ function zoomAt(cx, cy, f){
   const nk = Math.min(10, Math.max(0.01, V.k * f)); f = nk / V.k;
   V.x = px - (px - V.x) * f; V.y = py - (py - V.y) * f; V.k = nk; apply();
 }
+const zoomCenter = f => { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, f); };
 svg.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * .0015)); }, {passive: false});
 const P = new Map(); let lastD = 0;
 svg.addEventListener('pointerdown', e => { svg.setPointerCapture(e.pointerId); P.set(e.pointerId, {x: e.clientX, y: e.clientY}); lastD = 0; });
@@ -235,38 +370,73 @@ svg.addEventListener('pointermove', e => {
 });
 ['pointerup', 'pointercancel'].forEach(ev => svg.addEventListener(ev, e => { P.delete(e.pointerId); lastD = 0; }));
 $('fit').onclick = fit;
+$('zin').onclick = () => zoomCenter(1.3);
+$('zout').onclick = () => zoomCenter(1 / 1.3);
 window.addEventListener('resize', fit);
 
+/* ---------- check models ---------- */
+$('check').onclick = async () => {
+  const key = $('key').value.trim();
+  if (!key) return status('Paste your Gemini API key first.');
+  status('Checking models…');
+  try {
+    const list = await listModels(key);
+    $('models').innerHTML = list.map(n => `<option value="${esc(n)}">`).join('');
+    const flash = list.filter(n => /flash/.test(n)).slice(0, 6).join(', ');
+    status(`Key works. ${list.length} models available. Flash models: ${flash || 'none found'}. Tap the model box to pick one.`);
+  } catch (e) { showError('Checking models', e); }
+};
+
 /* ---------- generate ---------- */
+let ctrl = null;
+$('cancel').onclick = () => { if (ctrl) ctrl.abort(); };
+
 $('go').onclick = async () => {
-  const text = $('text').value.trim(), key = $('key').value.trim(), model = $('model').value.trim();
+  const text = $('text').value.trim(), key = $('key').value.trim();
   if (!text) return status('Add some text first.');
   if (!key) return status('Paste your Gemini API key.');
+  S.model = $('model').value.trim() || S.model; S.partial = false;
   try { localStorage.setItem('gkey', key); } catch(e){}
-  $('go').disabled = true;
+  $('err').hidden = true; $('go').disabled = true; $('cancel').disabled = false;
+  ctrl = new AbortController();
+  const t0 = Date.now(); let stage = 'Starting';
   try {
-    const chunks = chunkText(text); let tree = null;
-    for (let i = 0; i < chunks.length; i++) {
-      status(`Building map… part ${i + 1} of ${chunks.length}`);
-      const note = chunks.length > 1
-        ? `This is part ${i + 1} of ${chunks.length} of one document.` + (tree ? ` Use exactly this root text: "${tree.t}".` : '')
-        : '';
-      const part = normalize(await askGemini(`${SYS}\n\n${note}\n\nTEXT:\n${chunks[i]}`, key, model));
-      if (!tree) tree = part; else merge(tree, part);
+    const chunks = chunkText(text); let done = 0;
+    log('Text ' + text.length + ' chars, ' + chunks.length + ' part(s), model ' + S.model);
+    const tick = () => status(`Building map… ${done}/${chunks.length} parts done (${Math.round((Date.now() - t0) / 1000)}s)`);
+    const note = i => chunks.length > 1 ? `This is part ${i + 1} of ${chunks.length} of one document.` : '';
+
+    stage = 'Asking Gemini (part 1 of ' + chunks.length + ')'; tick();
+    const tree = await askGemini(`${SYS}\n\n${note(0)}\n\nTEXT:\n${chunks[0]}`, key, ctrl.signal);
+    done = 1; tick();
+
+    if (chunks.length > 1) {
+      stage = 'Asking Gemini (remaining parts)';
+      const rest = await pool(chunks.slice(1), 3, async (c, k) => {
+        const t = await askGemini(`${SYS}\n\n${note(k + 1)} Use exactly this root text: "${tree.t}".\n\nTEXT:\n${c}`, key, ctrl.signal);
+        done++; tick(); return t;
+      });
+      rest.forEach(t => merge(tree, t));
     }
-    status('Arranging layout…');
-    await new Promise(r => setTimeout(r, 30));
-    render(layout(tree));
-    status('Done. Drag to pan, scroll or pinch to zoom.');
-    $('panel').open = false;
-  } catch (e) { status('Error: ' + e.message); }
-  $('go').disabled = false;
+
+    stage = 'Arranging layout'; status('Arranging layout…'); await sleep(20);
+    const all = layout(tree);
+    stage = 'Drawing the map'; render(all);
+    try { localStorage.setItem('gmodel', S.model); } catch(e){}
+
+    status(`Done — ${all.length} boxes in ${Math.round((Date.now() - t0) / 1000)}s. Drag to pan, scroll or pinch to zoom.` +
+      (S.partial ? ' Gemini’s output was cut off, so the map may be incomplete — try splitting your text.' : ''));
+    $('panel').open = S.partial;
+  } catch (e) { ctrl.abort(); showError(stage, e); }
+  $('go').disabled = false; $('cancel').disabled = true;
 };
 
 /* ---------- PDF (vector, cropped to content) ---------- */
 $('pdf').onclick = async () => {
   if (!B) return status('Generate a map first.');
   try {
+    if (!window.jspdf || !window.svg2pdf) throw new Error('PDF libraries did not load (blocked or offline).');
+    status('Making PDF…');
     const pad = 40, w = B.maxX - B.minX + pad * 2, h = B.maxY - B.minY + pad * 2;
     const sc = Math.min(1, 14000 / Math.max(w, h)), {jsPDF} = window.jspdf;
     const doc = new jsPDF({unit: 'pt', format: [w * sc, h * sc], orientation: w > h ? 'l' : 'p'});
@@ -274,9 +444,11 @@ $('pdf').onclick = async () => {
     holder.style.cssText = 'position:fixed;left:-99999px;top:0';
     holder.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${B.minX - pad} ${B.minY - pad} ${w} ${h}"><rect x="${B.minX - pad}" y="${B.minY - pad}" width="${w}" height="${h}" fill="#ffffff"/>${CONTENT}</svg>`;
     document.body.appendChild(holder);
-    const fn = window.svg2pdf.svg2pdf || window.svg2pdf;
-    await fn(holder.firstChild, doc, {x: 0, y: 0, width: w * sc, height: h * sc});
-    holder.remove();
+    try {
+      const fn = window.svg2pdf.svg2pdf || window.svg2pdf;
+      await fn(holder.firstChild, doc, {x: 0, y: 0, width: w * sc, height: h * sc});
+    } finally { holder.remove(); }
     doc.save('mindmap.pdf');
-  } catch (e) { status('PDF error: ' + e.message); }
+    status('PDF downloaded.');
+  } catch (e) { showError('Making the PDF', e); }
 };
