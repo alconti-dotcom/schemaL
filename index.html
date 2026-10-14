@@ -1,60 +1,34 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Concept Map Generator</title>
-    
-    <!-- D3.js Library -->
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-
-    <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; background-color: #0f172a; color: #f8fafc; }
-        #canvas-container { width: 100vw; height: 100vh; }
-        .hidden { display: none !important; }
-        
-        #input-drawer { position: absolute; top: 20px; left: 20px; width: 320px; background: rgba(30, 41, 59, 0.95); border: 1px solid #334155; padding: 16px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); z-index: 10; }
-        #toggle-input-btn { position: absolute; top: 20px; left: 20px; z-index: 5; padding: 10px 16px; background: #3b82f6; border: none; color: white; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        textarea, input { width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid #334155; color: white; padding: 8px; border-radius: 4px; margin-bottom: 12px; }
-        button.action-btn { width: 100%; padding: 10px; background: #10b981; border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; margin-bottom: 8px; }
-        button.close-btn { width: 100%; padding: 6px; background: transparent; border: 1px solid #475569; color: #94a3b8; border-radius: 4px; cursor: pointer; }
-        #status { display: block; font-size: 12px; color: #94a3b8; margin-top: 8px; }
-
-        .node-rect { fill: #1e293b; stroke: #475569; stroke-width: 2px; rx: 6px; }
-        .node-title { fill: #f8fafc; font-size: 12px; font-weight: bold; }
-        .node-def { fill: #94a3b8; font-size: 10px; }
-        .link-precursor { stroke: #475569; stroke-width: 2px; }
-        .link-correlation { stroke: #f59e0b; stroke-width: 1.5px; stroke-dasharray: 4,4; }
-        .link-label { fill: #f59e0b; font-size: 10px; text-anchor: middle; }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MindMapper</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <button id="toggle-input-btn">Open Control Panel</button>
-
-    <div id="input-drawer" class="hidden">
-        <h3>Concept Map Generator</h3>
-        <label for="root-topic-input" style="font-size: 12px;">Root Concept Topic:</label>
-        <input type="text" id="root-topic-input" value="CAPSULES" placeholder="e.g., CAPSULES">
-
-        <label for="notes-textarea" style="font-size: 12px;">Study Material:</label>
-        <textarea id="notes-textarea" rows="8" placeholder="Paste study material here..."></textarea>
-
-        <button id="process-notes-btn" class="action-btn">Generate Concept Map</button>
-        <button id="export-btn" class="action-btn" style="background: #6366f1;">Export JSON</button>
-        <button id="close-drawer-btn" class="close-btn">Close Panel</button>
-
-        <span id="status">Status: Ready</span>
+<details id="panel" open>
+  <summary>MindMapper — input</summary>
+  <div class="body">
+    <input type="file" id="file" accept=".txt,.md,.pdf,.docx" multiple>
+    <textarea id="text" placeholder="Paste or upload your text here…"></textarea>
+    <input id="key" type="password" placeholder="Gemini API key (kept only in your browser)">
+    <input id="model" value="gemini-2.5-flash" title="Gemini model name">
+    <div class="row">
+      <button id="go">Generate</button>
+      <button id="fit">Fit view</button>
+      <button id="pdf">Download PDF</button>
     </div>
+    <div id="status"></div>
+  </div>
+</details>
+<div id="stage"><svg id="svg" xmlns="http://www.w3.org/2000/svg"><g id="vp"></g></svg></div>
+<div id="legend"></div>
 
-    <svg id="canvas-container">
-        <g id="viewport">
-            <g id="hulls-layer"></g>
-            <g id="links-layer"></g>
-            <g id="nodes-layer"></g>
-        </g>
-    </svg>
-
-    <script src="app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/svg2pdf.js/2.2.4/svg2pdf.umd.min.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
